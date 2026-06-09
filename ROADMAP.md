@@ -19,11 +19,15 @@ The SDK is the integration layer for every phase — each phase below lands as n
 
 Make the SDK fully chain-agnostic so one client serves Ethereum **and** Solana.
 
-- **`@opaquecash/adapter`** — a TypeScript `ChainAdapter` interface mirroring the Rust trait:
-  `getAnnouncements`, `submitAnnounce`, `read/submit` for registry/PSR, event subscriptions.
-- **`EvmAdapter`** (viem) — refactor today's `stealth-chain` / `psr-chain` logic behind the interface.
-- **`SolanaAdapter`** (`@solana/web3.js` + `@coral-xyz/anchor`) — `stealth-announcer`,
-  `schema-registry`, `attestation-engine-v2`, `uab-receiver`; reads `CrossChainAnnouncement`.
+- **`@opaquecash/adapter`** ✅ — a TypeScript `ChainAdapter` interface mirroring the Rust trait
+  (`fetchAnnouncements`, `resolveMetaAddress`, `isRegistered`, `watchAnnouncements`) plus the
+  chain-neutral `Announcement` type. Submission stays chain-specific (builders + the app wallet).
+- **`SolanaAdapter`** ✅ — shipped in `@opaquecash/stealth-chain-solana` (`@solana/web3.js`):
+  `stealth-announcer` + `stealth-registry` reads/builders, `Announcement` log scanning, and
+  deterministic stealth Solana destinations. PSR programs (`schema-registry`,
+  `attestation-engine-v2`) and `uab-receiver` cross-chain reads are the next slice.
+- **`EvmAdapter`** (viem) — refactor today's `stealth-chain` / `psr-chain` logic behind the
+  interface so the existing green path stays byte-for-byte. Next.
 - **Unified signer** abstraction over EIP-1193 and Solana wallet-adapter.
 - **`@opaquecash/deployments`** — generated address/ABI/IDL package fed by each chain's deploy
   scripts, so the SDK ingests config instead of importing from chain repos.
