@@ -20,6 +20,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
+    "@opaquecash/adapter": "0.1.0",
     "@opaquecash/stealth-core": "0.1.0",
     "viem": "^2.21.0"
   },

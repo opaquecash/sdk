@@ -17,7 +17,13 @@ import {
   stealthMetaAddressRegistryAbi,
   stealthAddressAnnouncerAbi,
   getStealthMetaAddress as readRegistryMetaAddress,
+  EvmAdapter,
 } from "@opaquecash/stealth-chain";
+import {
+  SolanaAdapter,
+  type SolanaAdapterConfig,
+} from "@opaquecash/stealth-chain-solana";
+import type { Announcement, ChainAdapter } from "@opaquecash/adapter";
 import {
   checkAnnouncement,
   checkAnnouncementViewTag,
@@ -130,6 +136,23 @@ export interface OpaqueClientConfig {
     uabReceiver: Address;
     wormholeCore: Address;
   }>;
+  /**
+   * Solana access for the unified {@link OpaqueClient.scan} inbox. Optional: only needed when
+   * `scan({ chains })` includes `"solana"`. Pass a `connection`, `rpcUrl`, or `cluster`
+   * (defaults to devnet). The viewing/spending keys are chain-neutral — no Solana identity required.
+   */
+  solana?: SolanaAdapterConfig;
+}
+
+/** Chains the unified {@link OpaqueClient.scan} can read. */
+export type OpaqueScanChain = "ethereum" | "solana";
+
+/** One owned stealth output from the unified inbox, tagged with its source chain. */
+export interface UnifiedOwnedOutput extends OwnedStealthOutput {
+  /** Source chain of this output. */
+  chain: OpaqueScanChain;
+  /** Wormhole chain id of the source (Ethereum = 2, Solana = 1). */
+  chainId: number;
 }
 
 /**
@@ -217,6 +240,8 @@ export class OpaqueClient {
   private readonly metaAddressHex: Hex;
   private readonly publicClient: PublicClient;
   private readonly wasm: StealthWasmModule;
+  private evmAdapter?: ChainAdapter;
+  private solanaAdapter?: ChainAdapter;
 
   private constructor(
     config: OpaqueClientConfig,
@@ -550,6 +575,65 @@ export class OpaqueClient {
     return owned;
   }
 
+  // ---------------------------------------------------------------------------
+  // Unified cross-chain inbox
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Scan one or more chains for stealth outputs owned by this wallet and return a single,
+   * merged inbox. Each chain's native announcements are fetched through its {@link ChainAdapter}
+   * and run through the same WASM view-tag + DKSAP filter ({@link filterOwnedAnnouncements}), so
+   * detection is identical across chains. Outputs are tagged with their source `chain` / `chainId`.
+   *
+   * `"ethereum"` reuses this client's viem client + configured announcer/registry. `"solana"`
+   * requires {@link OpaqueClientConfig.solana} (connection / rpcUrl / cluster; defaults to devnet).
+   * The viewing/spending keys are chain-neutral, so one wallet's inbox spans both chains.
+   */
+  async scan(opts: {
+    chains: OpaqueScanChain[];
+    /** Lower-bound cursor: EVM block number (Solana scans the most recent signatures). */
+    fromBlock?: bigint;
+    /** Upper-bound EVM block; omit for the chain tip. */
+    toBlock?: bigint;
+    /** Max Solana signatures to scan (adapter default when omitted). */
+    solanaLimit?: number;
+  }): Promise<UnifiedOwnedOutput[]> {
+    const out: UnifiedOwnedOutput[] = [];
+    for (const chain of opts.chains) {
+      const adapter = this.getAdapter(chain);
+      const announcements = await adapter.fetchAnnouncements({
+        fromCursor: opts.fromBlock,
+        toCursor: opts.toBlock,
+        limit: opts.solanaLimit,
+      });
+      const rows = announcements.map(announcementToIndexerRow);
+      const owned = await this.filterOwnedAnnouncements(rows);
+      for (const o of owned) {
+        out.push({ ...o, chain, chainId: adapter.chainId });
+      }
+    }
+    return out;
+  }
+
+  /** Lazily build and cache the {@link ChainAdapter} for a chain. */
+  private getAdapter(chain: OpaqueScanChain): ChainAdapter {
+    if (chain === "ethereum") {
+      this.evmAdapter ??= new EvmAdapter({
+        publicClient: this.publicClient,
+        announcerAddress: this.announcer,
+        registryAddress: this.registry,
+        evmChainId: this.config.chainId,
+        schemeId: BigInt(EIP5564_SCHEME_SECP256K1),
+      });
+      return this.evmAdapter;
+    }
+    if (chain === "solana") {
+      this.solanaAdapter ??= new SolanaAdapter(this.config.solana ?? {});
+      return this.solanaAdapter;
+    }
+    throw new Error(`Opaque: unsupported scan chain "${chain as string}"`);
+  }
+
   /**
    * Reconstruct the 32-byte secp256k1 private key that controls `output`’s one-time stealth address.
    * Uses the same WASM path as the on-chain scanner (`reconstruct_signing_key_wasm`).
@@ -856,6 +940,24 @@ function bytesToHex(b: Uint8Array): string {
   return Array.from(b)
     .map((x) => x.toString(16).padStart(2, "0"))
     .join("");
+}
+
+/**
+ * Map a chain-neutral {@link Announcement} (from any {@link ChainAdapter}) into the
+ * {@link IndexerAnnouncement} row shape consumed by {@link OpaqueClient.filterOwnedAnnouncements}.
+ * `txHash` passes through verbatim (an EVM `0x` hash or a Solana base58 signature); `cursor`
+ * (EVM block / Solana slot) becomes `blockNumber`.
+ */
+export function announcementToIndexerRow(a: Announcement): IndexerAnnouncement {
+  return {
+    blockNumber: (a.cursor ?? 0n).toString(),
+    etherealPublicKey: (`0x${bytesToHex(a.ephemeralPubKey)}`) as Hex,
+    logIndex: a.logIndex ?? 0,
+    metadata: (`0x${bytesToHex(a.metadata)}`) as Hex,
+    stealthAddress: a.stealthAddress as Address,
+    transactionHash: (a.txHash ?? "0x") as Hex,
+    viewTag: a.viewTag,
+  };
 }
 
 function hexPayloadByteLength(h: Hex): number {

@@ -32,3 +32,9 @@ export {
   watchAnnouncements,
   fetchAnnouncementsRange,
 } from "./announcer.js";
+
+export {
+  EvmAdapter,
+  type EvmAdapterConfig,
+  evmAnnouncementToNeutral,
+} from "./adapter.js";

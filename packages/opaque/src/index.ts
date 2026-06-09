@@ -15,7 +15,33 @@ export {
   type AnnounceTransactionRequest,
   type RegisterMetaAddressTransactionRequest,
   type ResolveRecipientMetaResult,
+  type OpaqueScanChain,
+  type UnifiedOwnedOutput,
+  announcementToIndexerRow,
 } from "./client.js";
+
+// Chain adapters (the unified scan surface) — re-exported so consumers get them from one package.
+export type {
+  ChainAdapter,
+  Announcement,
+  FetchAnnouncementsOptions,
+  AnnouncementHandlers,
+} from "@opaquecash/adapter";
+export {
+  WORMHOLE_CHAIN_ETHEREUM,
+  WORMHOLE_CHAIN_SOLANA,
+} from "@opaquecash/adapter";
+export {
+  EvmAdapter,
+  type EvmAdapterConfig,
+} from "@opaquecash/stealth-chain";
+export {
+  SolanaAdapter,
+  type SolanaAdapterConfig,
+  getSolanaDeployment,
+  type SolanaCluster,
+  type SolanaDeployment,
+} from "@opaquecash/stealth-chain-solana";
 
 export type { VerifyReputationArgs } from "@opaquecash/psr-chain";
 export type {

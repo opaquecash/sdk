@@ -16,6 +16,16 @@ All notable changes to the Opaque SDK packages.
   deterministic stealth Solana keypair derivation, and `SolanaAdapter` (implements
   `ChainAdapter`). Vendors the deployed `stealth_announcer` IDL. No ambient config: pass a
   `Connection`, `rpcUrl`, or `cluster`.
+- **`@opaquecash/stealth-chain`**: `EvmAdapter` implements `ChainAdapter` by wrapping the
+  existing viem registry/announcer helpers (`fetchAnnouncementsRange`, `watchAnnouncements`,
+  `getStealthMetaAddress`); `evmAnnouncementToNeutral` maps decoded EVM events to the
+  chain-neutral `Announcement`. The EVM read path is unchanged.
+- **`@opaquecash/opaque`**: `OpaqueClient.scan({ chains: ["ethereum","solana"] })` — one wallet,
+  one unified inbox across both chains. Each chain's announcements are fetched through its
+  `ChainAdapter` and run through the same WASM view-tag + DKSAP filter; results are tagged with
+  `chain` / `chainId` (`UnifiedOwnedOutput`). Adds optional `solana` config, the
+  `announcementToIndexerRow` mapper, and re-exports the adapters + interface so one package is the
+  full surface.
 - **`@opaquecash/uab`** — Universal Announcement Bus client: `buildAnnounceWithRelayRequest`,
   `getWormholeMessageFee`, `fetchVaa` (Wormholescan), `fetchCrossChainAnnouncements` +
   `toIndexerAnnouncement`, and the Sepolia deployment registry.

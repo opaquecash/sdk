@@ -26,12 +26,17 @@ Make the SDK fully chain-agnostic so one client serves Ethereum **and** Solana.
   `stealth-announcer` + `stealth-registry` reads/builders, `Announcement` log scanning, and
   deterministic stealth Solana destinations. PSR programs (`schema-registry`,
   `attestation-engine-v2`) and `uab-receiver` cross-chain reads are the next slice.
-- **`EvmAdapter`** (viem) — refactor today's `stealth-chain` / `psr-chain` logic behind the
-  interface so the existing green path stays byte-for-byte. Next.
-- **Unified signer** abstraction over EIP-1193 and Solana wallet-adapter.
+- **`EvmAdapter`** ✅ — shipped in `@opaquecash/stealth-chain`, wrapping the existing viem
+  registry/announcer helpers behind `ChainAdapter`. The EVM read path is unchanged (green).
+- **Universal scan** ✅ — `OpaqueClient.scan({ chains: ["ethereum","solana"] })` returns one
+  merged inbox: each chain's native announcements run through the shared WASM view-tag + DKSAP
+  filter, tagged with `chain` / `chainId`. Next: fold the cross-chain UAB (`scanCrossChain`)
+  results into the same call so native + relayed announcements arrive together.
+- **Unified signer** abstraction over EIP-1193 and Solana wallet-adapter. Next.
 - **`@opaquecash/deployments`** — generated address/ABI/IDL package fed by each chain's deploy
   scripts, so the SDK ingests config instead of importing from chain repos.
-- Universal scan: `opaque.scan()` matches native + cross-chain announcements across both chains.
+- **PSR on Solana** — wrap `schema-registry` / `attestation-engine-v2` / `reputation-verifier`
+  (a `psr-chain-solana` peer to `psr-chain`) so traits + proofs work on both chains.
 
 ## Phase 3 — Privacy pool (amount privacy)
 
