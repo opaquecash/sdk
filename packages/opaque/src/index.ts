@@ -55,6 +55,30 @@ export {
 export type { ProofData } from "@opaquecash/psr-core";
 export { buildActionScope, externalNullifierFromScope } from "@opaquecash/psr-core";
 
+// PSR V2 schema + attestation codecs (chain-neutral).
+export type {
+  FieldType,
+  FieldDef,
+  SchemaV2,
+  AttestationField,
+  AttestationV2,
+} from "@opaquecash/psr-core";
+export {
+  SCHEMA_VERSION,
+  ZERO_ADDRESS,
+  ZERO_BYTES32,
+  parseFieldDefs,
+  fieldDefsToString,
+  computeSchemaId,
+  packSchemaIdToField,
+  computeUid,
+  encodeAttestationData,
+  decodeAttestationData,
+  encodeV2AttestationMetadata,
+  randomNonce,
+  isZeroUid,
+} from "@opaquecash/psr-core";
+
 export type {
   IndexerAnnouncement,
   OwnedStealthOutput,

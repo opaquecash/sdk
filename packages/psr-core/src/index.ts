@@ -24,3 +24,27 @@ export {
 } from "./errors.js";
 
 export { attestationsToDiscoveredTraits } from "./traits.js";
+
+// PSR V2 schema + attestation codecs (chain-neutral).
+export {
+  type FieldType,
+  type FieldDef,
+  type SchemaV2,
+  SCHEMA_VERSION,
+  ZERO_ADDRESS,
+  parseFieldDefs,
+  fieldDefsToString,
+  computeSchemaId,
+  packSchemaIdToField,
+} from "./schema.js";
+export {
+  type AttestationField,
+  type AttestationV2,
+  ZERO_BYTES32,
+  computeUid,
+  encodeAttestationData,
+  decodeAttestationData,
+  encodeV2AttestationMetadata,
+  randomNonce,
+  isZeroUid,
+} from "./attestation.js";

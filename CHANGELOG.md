@@ -32,6 +32,11 @@ All notable changes to the Opaque SDK packages.
   `planStealthSweep` / `sweepStealthNative`: full ETH balance minus gas, signed by the
   reconstructed stealth key. `OpaqueClient.sweep({ output, chain, destination })` unifies both — the
   on-chain `from` is the stealth address itself, preserving unlinkability.
+- **PSR V2 codecs (chain-neutral)** in `@opaquecash/psr-core`: schema utilities (`computeSchemaId`,
+  `parseFieldDefs` / `fieldDefsToString`, `packSchemaIdToField`, `SchemaV2`/`FieldDef` types) and
+  attestation codecs (`computeUid`, `encodeAttestationData` / `decodeAttestationData`,
+  `encodeV2AttestationMetadata` — the 130-byte `0xB2` announce marker — `randomNonce`, `isZeroUid`).
+  Ported from the frontends; re-exported from `@opaquecash/opaque`.
 - **`@opaquecash/uab`** — Universal Announcement Bus client: `buildAnnounceWithRelayRequest`,
   `getWormholeMessageFee`, `fetchVaa` (Wormholescan), `fetchCrossChainAnnouncements` +
   `toIndexerAnnouncement`, and the Sepolia deployment registry.
