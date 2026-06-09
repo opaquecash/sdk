@@ -55,6 +55,13 @@ import {
 } from "@opaquecash/stealth-balance";
 import type { StealthOutputBalance } from "@opaquecash/stealth-balance";
 import {
+  buildAnnounceWithRelayRequest as uabBuildAnnounceWithRelayRequest,
+  fetchCrossChainAnnouncements as uabFetchCrossChainAnnouncements,
+  toIndexerAnnouncement as uabToIndexerAnnouncement,
+  getUabDeployment,
+} from "@opaquecash/uab";
+import type { AnnounceWithRelayRequest, UabIndexerAnnouncement } from "@opaquecash/uab";
+import {
   deriveKeysFromSignature,
   keysToStealthMetaAddress,
   stealthMetaAddressToHex,
@@ -119,6 +126,9 @@ export interface OpaqueClientConfig {
     stealthMetaAddressRegistry: Address;
     stealthAddressAnnouncer: Address;
     opaqueReputationVerifier: Address;
+    uabSender: Address;
+    uabReceiver: Address;
+    wormholeCore: Address;
   }>;
 }
 
@@ -423,6 +433,75 @@ export class OpaqueClient {
         metadata: metadataHex,
       },
     };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Universal Announcement Bus (cross-chain announcements over Wormhole)
+  // ---------------------------------------------------------------------------
+
+  /** Resolve UAB addresses for this chain (config override takes precedence over the known deployment). */
+  private uabAddresses(): {
+    uabSender: Address;
+    uabReceiver: Address;
+    wormholeCore: Address;
+    fromBlock: bigint;
+  } {
+    const d = getUabDeployment(this.config.chainId);
+    const uabSender = this.config.contracts?.uabSender ?? d?.uabSender;
+    const uabReceiver = this.config.contracts?.uabReceiver ?? d?.uabReceiver;
+    const wormholeCore = this.config.contracts?.wormholeCore ?? d?.wormholeCore;
+    if (!uabSender || !uabReceiver || !wormholeCore) {
+      throw new Error(
+        `UAB not configured for chainId ${this.config.chainId}; pass contracts.{uabSender,uabReceiver,wormholeCore}`,
+      );
+    }
+    return { uabSender, uabReceiver, wormholeCore, fromBlock: d?.fromBlock ?? 0n };
+  }
+
+  /**
+   * Build a `{to,data,value}` request for a CROSS-CHAIN announce (`announceWithRelay`): it emits the
+   * local announcement AND publishes the 96-byte payload through Wormhole. `value` is the Wormhole
+   * message fee. Pass the same {@link PrepareStealthSendResult} you'd use for a native announce.
+   */
+  async buildAnnounceWithRelayRequest(
+    send: PrepareStealthSendResult,
+    opts: { consistencyLevel?: number } = {},
+  ): Promise<AnnounceWithRelayRequest & { chainId: number }> {
+    const { uabSender, wormholeCore } = this.uabAddresses();
+    const req = await uabBuildAnnounceWithRelayRequest(this.publicClient, {
+      uabSender,
+      wormholeCore,
+      schemeId: send.schemeId,
+      stealthAddress: send.stealthAddress,
+      ephemeralPubKey: (`0x${bytesToHex(send.ephemeralPublicKey)}`) as Hex,
+      metadata: (`0x${bytesToHex(send.metadata)}`) as Hex,
+      consistencyLevel: opts.consistencyLevel,
+    });
+    return { ...req, chainId: this.config.chainId };
+  }
+
+  /**
+   * Read inbound CROSS-CHAIN announcements (from the UABReceiver) as indexer-shaped rows, ready to
+   * pass into {@link filterOwnedAnnouncements} alongside native rows.
+   */
+  async fetchCrossChainAnnouncements(
+    opts: { fromBlock?: bigint; toBlock?: bigint | "latest" } = {},
+  ): Promise<UabIndexerAnnouncement[]> {
+    const { uabReceiver, fromBlock } = this.uabAddresses();
+    const records = await uabFetchCrossChainAnnouncements(this.publicClient, {
+      uabReceiver,
+      fromBlock: opts.fromBlock ?? fromBlock,
+      toBlock: opts.toBlock,
+    });
+    return records.map(uabToIndexerAnnouncement);
+  }
+
+  /** Discover stealth outputs owned by this user that arrived via the cross-chain UAB. */
+  async scanCrossChain(
+    opts: { fromBlock?: bigint; toBlock?: bigint | "latest" } = {},
+  ): Promise<OwnedStealthOutput[]> {
+    const rows = await this.fetchCrossChainAnnouncements(opts);
+    return this.filterOwnedAnnouncements(rows);
   }
 
   /**

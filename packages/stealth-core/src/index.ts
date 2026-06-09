@@ -33,3 +33,13 @@ export {
   announcementViewTag,
   announcementToScannerJson,
 } from "./announcement.js";
+
+export {
+  UAB_PAYLOAD_LENGTH,
+  WORMHOLE_CHAIN_ID,
+  encodeUabPayload,
+  decodeUabPayload,
+  uabStealthAddressEvm,
+  uabPayloadToMetadata,
+} from "./payload.js";
+export type { UabPayload, EncodeUabPayloadInput } from "./payload.js";

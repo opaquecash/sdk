@@ -1,0 +1,26 @@
+{
+  "name": "@opaquecash/uab",
+  "version": "0.1.0",
+  "description": "Universal Announcement Bus: cross-chain stealth announcements over Wormhole (send via UABSender, discover via UABReceiver, fetch VAAs)",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@opaquecash/stealth-core": "0.1.0",
+    "viem": "^2.21.0"
+  },
+  "sideEffects": false
+}

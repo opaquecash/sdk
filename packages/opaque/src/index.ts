@@ -60,3 +60,29 @@ export {
 } from "./crypto/dksap.js";
 
 export { EIP5564_SCHEME_SECP256K1 } from "@opaquecash/stealth-core";
+export {
+  encodeUabPayload,
+  decodeUabPayload,
+  uabStealthAddressEvm,
+  uabPayloadToMetadata,
+  UAB_PAYLOAD_LENGTH,
+  WORMHOLE_CHAIN_ID,
+} from "@opaquecash/stealth-core";
+export type { UabPayload } from "@opaquecash/stealth-core";
+
+// Universal Announcement Bus (cross-chain) — re-exported so consumers get it from @opaquecash/opaque.
+export {
+  fetchVaa,
+  getUabDeployment,
+  requireUabDeployment,
+  CONSISTENCY_FINALIZED,
+  CONSISTENCY_SAFE,
+  WORMHOLESCAN_TESTNET,
+  WORMHOLESCAN_MAINNET,
+} from "@opaquecash/uab";
+export type {
+  AnnounceWithRelayRequest,
+  UabIndexerAnnouncement,
+  CrossChainAnnouncementRecord,
+  UabDeployment,
+} from "@opaquecash/uab";
