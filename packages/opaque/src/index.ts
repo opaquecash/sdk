@@ -43,6 +43,10 @@ export {
   type SolanaDeployment,
 } from "@opaquecash/stealth-chain-solana";
 
+// PSR on Solana (schema registry, attestation engine, reputation verifier). Namespaced to avoid
+// clashing with the chain-neutral psr-core codecs (e.g. both export `computeSchemaId`).
+export * as solanaPsr from "@opaquecash/psr-chain-solana";
+
 export type { VerifyReputationArgs } from "@opaquecash/psr-chain";
 export type {
   ArtifactPaths,

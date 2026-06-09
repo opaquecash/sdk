@@ -37,6 +37,14 @@ All notable changes to the Opaque SDK packages.
   attestation codecs (`computeUid`, `encodeAttestationData` / `decodeAttestationData`,
   `encodeV2AttestationMetadata` — the 130-byte `0xB2` announce marker — `randomNonce`, `isZeroUid`).
   Ported from the frontends; re-exported from `@opaquecash/opaque`.
+- **`@opaquecash/psr-chain-solana`** — Solana PSR V2 integration (counterpart to `psr-chain`):
+  schema registry (`computeSchemaId`, `deriveSchemaPda`, register/delegate/deprecate builders,
+  `parseSchemaPda`, `fetchAllSchemas`), attestation engine V2 (`deriveAttestationPda`,
+  `buildAttestInstruction` / `buildRevokeInstruction`, `parseAttestationPda`,
+  `fetchAllAttestations`), and the reputation verifier (`encodeGroth16Proof`, PDA derivers,
+  `fetchLatestValidMerkleRoot`, `buildVerifyReputationInstruction`, `submitReputationProof`).
+  Anchor discriminators via `sha256("global:<method>")`; program ids from the centralized
+  `getSolanaDeployment`. Re-exported from `@opaquecash/opaque` as `solanaPsr`.
 - **`@opaquecash/uab`** — Universal Announcement Bus client: `buildAnnounceWithRelayRequest`,
   `getWormholeMessageFee`, `fetchVaa` (Wormholescan), `fetchCrossChainAnnouncements` +
   `toIndexerAnnouncement`, and the Sepolia deployment registry.

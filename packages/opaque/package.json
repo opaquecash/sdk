@@ -21,6 +21,7 @@
     "@noble/hashes": "^1.5.0",
     "@opaquecash/adapter": "0.1.0",
     "@opaquecash/psr-chain": "0.1.0",
+    "@opaquecash/psr-chain-solana": "0.1.0",
     "@opaquecash/psr-core": "0.1.0",
     "@opaquecash/psr-prover": "0.1.0",
     "@opaquecash/stealth-balance": "0.1.0",
