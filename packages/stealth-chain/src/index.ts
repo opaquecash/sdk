@@ -38,3 +38,10 @@ export {
   type EvmAdapterConfig,
   evmAnnouncementToNeutral,
 } from "./adapter.js";
+
+export {
+  type SweepFees,
+  type EvmStealthSweepPlan,
+  planStealthSweep,
+  sweepStealthNative,
+} from "./sweep.js";

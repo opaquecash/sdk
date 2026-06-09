@@ -26,6 +26,12 @@ All notable changes to the Opaque SDK packages.
   `chain` / `chainId` (`UnifiedOwnedOutput`). Adds optional `solana` config, the
   `announcementToIndexerRow` mapper, and re-exports the adapters + interface so one package is the
   full surface.
+- **Stealth sweep / withdrawal.** `@opaquecash/stealth-chain-solana` adds
+  `buildStealthSweepTransaction` / `sweepStealthSol` (+ `SolanaAdapter.sweepStealthSol`): full SOL
+  balance minus fee, signed by the derived stealth keypair. `@opaquecash/stealth-chain` adds
+  `planStealthSweep` / `sweepStealthNative`: full ETH balance minus gas, signed by the
+  reconstructed stealth key. `OpaqueClient.sweep({ output, chain, destination })` unifies both — the
+  on-chain `from` is the stealth address itself, preserving unlinkability.
 - **`@opaquecash/uab`** — Universal Announcement Bus client: `buildAnnounceWithRelayRequest`,
   `getWormholeMessageFee`, `fetchVaa` (Wormholescan), `fetchCrossChainAnnouncements` +
   `toIndexerAnnouncement`, and the Sepolia deployment registry.

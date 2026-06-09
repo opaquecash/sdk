@@ -18,6 +18,7 @@ import {
   stealthAddressAnnouncerAbi,
   getStealthMetaAddress as readRegistryMetaAddress,
   EvmAdapter,
+  sweepStealthNative,
 } from "@opaquecash/stealth-chain";
 import {
   SolanaAdapter,
@@ -241,7 +242,7 @@ export class OpaqueClient {
   private readonly publicClient: PublicClient;
   private readonly wasm: StealthWasmModule;
   private evmAdapter?: ChainAdapter;
-  private solanaAdapter?: ChainAdapter;
+  private solanaAdapter?: SolanaAdapter;
 
   private constructor(
     config: OpaqueClientConfig,
@@ -628,10 +629,44 @@ export class OpaqueClient {
       return this.evmAdapter;
     }
     if (chain === "solana") {
-      this.solanaAdapter ??= new SolanaAdapter(this.config.solana ?? {});
-      return this.solanaAdapter;
+      return this.getSolanaAdapter();
     }
     throw new Error(`Opaque: unsupported scan chain "${chain as string}"`);
+  }
+
+  /** Lazily build and cache the concrete {@link SolanaAdapter}. */
+  private getSolanaAdapter(): SolanaAdapter {
+    this.solanaAdapter ??= new SolanaAdapter(this.config.solana ?? {});
+    return this.solanaAdapter;
+  }
+
+  /**
+   * Sweep the full native balance of an owned stealth output to `destination`, signed by the
+   * reconstructed one-time key (the on-chain `from` is the stealth address itself). Works for
+   * Ethereum (ETH) and Solana (SOL); `"solana"` requires {@link OpaqueClientConfig.solana}.
+   */
+  async sweep(params: {
+    output: Pick<OwnedStealthOutput, "ephemeralPublicKey">;
+    chain: OpaqueScanChain;
+    destination: string;
+  }): Promise<{ chain: OpaqueScanChain; tx: string }> {
+    const stealthPrivKey = this.getStealthSignerPrivateKey(params.output);
+    if (params.chain === "ethereum") {
+      const hash = await sweepStealthNative(this.publicClient, {
+        stealthPrivKey,
+        destination: getAddress(params.destination),
+        rpcUrl: this.config.rpcUrl,
+      });
+      return { chain: "ethereum", tx: hash };
+    }
+    if (params.chain === "solana") {
+      const { signature } = await this.getSolanaAdapter().sweepStealthSol({
+        stealthPrivKey,
+        destination: params.destination,
+      });
+      return { chain: "solana", tx: signature };
+    }
+    throw new Error(`Opaque: unsupported sweep chain "${params.chain as string}"`);
   }
 
   /**

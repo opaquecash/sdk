@@ -7,6 +7,7 @@
 
 import {
   Connection,
+  Keypair,
   PublicKey,
   TransactionInstruction,
   type Finality,
@@ -30,6 +31,7 @@ import {
   fetchAnnouncementsRange,
   watchAnnouncements,
 } from "./announcer.js";
+import { sweepStealthSol } from "./sweep.js";
 import {
   buildRegisterKeysInstruction,
   isRegistered,
@@ -129,6 +131,22 @@ export class SolanaAdapter implements ChainAdapter {
     return buildAnnounceInstruction({
       announcerProgramId: this.deployment.stealthAnnouncer,
       ...params,
+    });
+  }
+
+  /**
+   * Sweep the full SOL balance of a one-time stealth account to `destination`. The stealth
+   * keypair signs and pays its own fee; pass the reconstructed 32-byte secp256k1 stealth
+   * private key (or the derived keypair).
+   */
+  async sweepStealthSol(params: {
+    stealthPrivKey?: Uint8Array;
+    stealthKeypair?: Keypair;
+    destination: PublicKey | string;
+  }): Promise<{ signature: string; sweepLamports: bigint; feeLamports: bigint }> {
+    return sweepStealthSol(this.connection, {
+      ...params,
+      commitment: this.commitment,
     });
   }
 }

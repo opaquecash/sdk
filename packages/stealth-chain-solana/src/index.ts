@@ -50,6 +50,12 @@ export {
 } from "./stealth.js";
 
 export {
+  type StealthSweepPlan,
+  buildStealthSweepTransaction,
+  sweepStealthSol,
+} from "./sweep.js";
+
+export {
   SolanaAdapter,
   type SolanaAdapterConfig,
 } from "./adapter.js";
