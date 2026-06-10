@@ -22,6 +22,7 @@ export {
   ANNOUNCE_WITH_RELAY_DISCRIMINATOR,
   REGISTER_KEYS_DISCRIMINATOR,
   ANNOUNCEMENT_EVENT_DISCRIMINATOR,
+  CROSS_CHAIN_ANNOUNCEMENT_EVENT_DISCRIMINATOR,
   REGISTRY_ENTRY_SEED,
 } from "./programs.js";
 
@@ -84,3 +85,11 @@ export {
   concatBytes,
   ByteReader,
 } from "./bytes.js";
+
+export {
+  decodeCrossChainAnnouncementEventData,
+  decodeCrossChainAnnouncementLogs,
+  crossChainEventToAnnouncement,
+  fetchCrossChainAnnouncementsRange,
+} from "./uab-receiver.js";
+export type { DecodedCrossChainAnnouncementEvent } from "./uab-receiver.js";

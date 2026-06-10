@@ -31,6 +31,7 @@ import {
   fetchAnnouncementsRange,
   watchAnnouncements,
 } from "./announcer.js";
+import { fetchCrossChainAnnouncementsRange } from "./uab-receiver.js";
 import {
   type AnnounceWithRelayBuild,
   buildAnnounceWithRelay,
@@ -77,11 +78,21 @@ export class SolanaAdapter implements ChainAdapter {
   async fetchAnnouncements(
     opts: FetchAnnouncementsOptions = {},
   ): Promise<Announcement[]> {
-    return fetchAnnouncementsRange(this.connection, {
+    const native = await fetchAnnouncementsRange(this.connection, {
       announcerProgramId: this.deployment.stealthAnnouncer,
       limit: opts.limit,
       commitment: this.commitment,
     });
+    // Merge Ethereum-originated announcements mirrored by the uab-receiver program,
+    // normalised to the same shape (their chainId stays the origin chain's).
+    const includeCrossChain = opts.includeCrossChain ?? Boolean(this.deployment.uabReceiver);
+    if (!includeCrossChain) return native;
+    const cross = await fetchCrossChainAnnouncementsRange(this.connection, {
+      uabReceiverProgramId: this.deployment.uabReceiver,
+      limit: opts.limit,
+      commitment: this.commitment,
+    });
+    return [...native, ...cross];
   }
 
   async resolveMetaAddress(identity: string): Promise<Hex | null> {

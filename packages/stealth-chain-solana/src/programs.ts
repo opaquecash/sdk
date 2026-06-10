@@ -31,6 +31,8 @@ export interface SolanaDeployment {
   reputationVerifier: PublicKey;
   /** Wormhole Core Bridge program (for `announce_with_relay` cross-chain announcements). */
   wormholeCore: PublicKey;
+  /** UAB receiver program (re-emits Ethereum-originated announcements from verified VAAs). */
+  uabReceiver: PublicKey;
 }
 
 /** Devnet program ids (matches `solana/frontend/src/contracts/deployedAddresses.ts`). */
@@ -42,6 +44,7 @@ const DEVNET_IDS = {
   groth16Verifier: "6mFaKyp7F4NqNeoiBLEWSqy5wJSk7rWf1EYumVXgHvhQ",
   reputationVerifier: "BSnkCDoTpgNVN5BbF3aN5L5EJPiaYUkqqj9MHp8kaqWM",
   wormholeCore: WORMHOLE_CORE_DEVNET,
+  uabReceiver: "7d4Sbmmpy954JwSNdjwf31pgbeWUQqwpgNdte5iy3vuM",
 } as const;
 
 function deploymentFromIds(
@@ -57,6 +60,7 @@ function deploymentFromIds(
     groth16Verifier: new PublicKey(ids.groth16Verifier),
     reputationVerifier: new PublicKey(ids.reputationVerifier),
     wormholeCore: new PublicKey(ids.wormholeCore),
+    uabReceiver: new PublicKey(ids.uabReceiver),
   };
 }
 
@@ -106,6 +110,9 @@ export const REGISTER_KEYS_DISCRIMINATOR = Uint8Array.from([0x29, 0x44, 0x64, 0x
 
 /** Anchor `emit!`-ed `Announcement` event discriminator (prefixes the `Program data:` log). */
 export const ANNOUNCEMENT_EVENT_DISCRIMINATOR = Uint8Array.from([7, 44, 132, 71, 104, 35, 168, 60]);
+
+/** Anchor event discriminator: `sha256("event:CrossChainAnnouncement")[0..8]` (uab-receiver). */
+export const CROSS_CHAIN_ANNOUNCEMENT_EVENT_DISCRIMINATOR = Uint8Array.from([13, 87, 101, 171, 128, 65, 106, 220]);
 
 /** PDA seed prefix for a registry entry: `["stealth_meta", registrant, schemeId_le]`. */
 export const REGISTRY_ENTRY_SEED = "stealth_meta";

@@ -1086,9 +1086,11 @@ export class OpaqueClient {
     /** Max Solana signatures to scan (adapter default when omitted). */
     solanaLimit?: number;
     /**
-     * Also merge cross-chain (UAB) announcements re-emitted on the EVM UABReceiver, tagged
-     * `source: "uab"`. Defaults to `true` when `"ethereum"` is scanned and a UAB deployment is
-     * configured; set `false` to skip, or `true` to force (throws if UAB is unconfigured).
+     * Also merge cross-chain (UAB) announcements, tagged `source: "uab"`: on Ethereum, events
+     * re-emitted by the EVM UABReceiver; on Solana, `CrossChainAnnouncement` events from the
+     * `uab-receiver` program (merged by the adapter). Defaults to `true` wherever a UAB
+     * deployment is configured; set `false` to skip, or `true` to force on the EVM side
+     * (throws if UAB is unconfigured there).
      */
     includeCrossChain?: boolean;
   }): Promise<UnifiedOwnedOutput[]> {
@@ -1099,11 +1101,22 @@ export class OpaqueClient {
         fromCursor: opts.fromBlock,
         toCursor: opts.toBlock,
         limit: opts.solanaLimit,
+        includeCrossChain: opts.includeCrossChain,
       });
-      const rows = announcements.map(announcementToIndexerRow);
-      const owned = await this.filterOwnedAnnouncements(rows);
-      for (const o of owned) {
-        out.push({ ...o, chain, chainId: adapter.chainId, source: "native" });
+      // Adapters may merge cross-chain (UAB) announcements relayed to their chain;
+      // those keep their origin chainId, which distinguishes them from native ones.
+      const native = announcements.filter((a) => a.chainId === adapter.chainId);
+      const relayed = announcements.filter((a) => a.chainId !== adapter.chainId);
+      for (const [list, source] of [
+        [native, "native"],
+        [relayed, "uab"],
+      ] as const) {
+        if (list.length === 0) continue;
+        const rows = list.map(announcementToIndexerRow);
+        const owned = await this.filterOwnedAnnouncements(rows);
+        for (const o of owned) {
+          out.push({ ...o, chain, chainId: adapter.chainId, source });
+        }
       }
     }
 

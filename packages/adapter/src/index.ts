@@ -56,6 +56,12 @@ export interface FetchAnnouncementsOptions {
   toCursor?: bigint;
   /** Soft cap on the number of source records to scan (adapter-interpreted). */
   limit?: number;
+  /**
+   * Also include cross-chain (UAB) announcements relayed TO this chain, normalised to the
+   * same {@link Announcement} shape with their *origin* `chainId`. Adapter-interpreted:
+   * defaults to `true` where the chain has a UAB receiver deployment configured.
+   */
+  includeCrossChain?: boolean;
 }
 
 /** Callbacks for {@link ChainAdapter.watchAnnouncements}. */
