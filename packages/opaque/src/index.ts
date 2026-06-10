@@ -18,6 +18,7 @@ export {
   type ResolveRecipientMetaResult,
   type OpaqueScanChain,
   type UnifiedOwnedOutput,
+  type OutputBalance,
   type AnnounceWithRelayResult,
   type EvmAnnounceWithRelayResult,
   type SolanaAnnounceWithRelayResult,

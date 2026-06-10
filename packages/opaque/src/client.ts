@@ -36,6 +36,7 @@ import {
 import {
   SolanaAdapter,
   type SolanaAdapterConfig,
+  deriveStealthSolanaAddressFromStealthPrivKey,
 } from "@opaquecash/stealth-chain-solana";
 import type { Announcement, ChainAdapter } from "@opaquecash/adapter";
 import {
@@ -95,6 +96,7 @@ import {
   fetchAllSchemas as solanaFetchAllSchemas,
   fetchAllAttestations as solanaFetchAllAttestations,
   fetchAttestationPda as solanaFetchAttestationPda,
+  submitReputationProof as solanaSubmitReputationProof,
   type ParsedAttestationPda,
   type ParsedSchemaPda,
 } from "@opaquecash/psr-chain-solana";
@@ -297,6 +299,20 @@ export interface UnifiedOwnedOutput extends OwnedStealthOutput {
    * (relayed cross-chain over Wormhole and re-emitted by the UABReceiver).
    */
   source: "native" | "uab";
+}
+
+/** Native balance of one owned stealth output, resolved per chain. */
+export interface OutputBalance {
+  chain: OpaqueScanChain;
+  /** EVM-style 20-byte scanner address the announcement was matched on. */
+  stealthAddress: string;
+  /**
+   * Account actually holding the funds: the same address on Ethereum, or the derived Solana
+   * stealth account (base58) on Solana.
+   */
+  address: string;
+  /** Native balance in base units (wei on Ethereum, lamports on Solana). */
+  nativeRaw: bigint;
 }
 
 /** A cross-chain `announceWithRelay` built for Ethereum (submit `{to,data,value}` via wallet). */
@@ -1052,6 +1068,44 @@ export class OpaqueClient {
   }
 
   /**
+   * Native balance per owned stealth output across chains. Ethereum reads the stealth address
+   * directly; Solana reconstructs the one-time key (WASM), derives the Solana stealth account, and
+   * reads its lamports. Pass the {@link UnifiedOwnedOutput}s from {@link scan}. SPL/ERC-20 token
+   * sums for the EVM tracked-token set live in {@link getBalancesFromAnnouncements}.
+   */
+  async getBalancesForOutputs(
+    outputs: UnifiedOwnedOutput[],
+  ): Promise<OutputBalance[]> {
+    const result: OutputBalance[] = [];
+    for (const o of outputs) {
+      if (o.chain === "ethereum") {
+        const wei = await this.publicClient.getBalance({
+          address: getAddress(o.stealthAddress),
+        });
+        result.push({
+          chain: "ethereum",
+          stealthAddress: o.stealthAddress,
+          address: o.stealthAddress,
+          nativeRaw: wei,
+        });
+      } else if (o.chain === "solana") {
+        const stealthPrivKey = this.getStealthSignerPrivateKey(o);
+        const address = deriveStealthSolanaAddressFromStealthPrivKey(stealthPrivKey);
+        const lamports = await this.getSolanaAdapter().connection.getBalance(
+          new PublicKey(address),
+        );
+        result.push({
+          chain: "solana",
+          stealthAddress: o.stealthAddress,
+          address,
+          nativeRaw: BigInt(lamports),
+        });
+      }
+    }
+    return result;
+  }
+
+  /**
    * PSR: map owned attestation markers to {@link DiscoveredTrait} list.
    */
   async discoverTraits(
@@ -1631,21 +1685,49 @@ export class OpaqueClient {
     );
   }
 
-  /** Broadcast `verifyReputation` (consumes nullifier when successful). */
-  async submitReputationVerification<
-    TTransport extends Transport,
-    TChain extends Chain,
-    TAccount extends Account | undefined,
-  >(
-    wallet: WalletClient<TTransport, TChain, TAccount>,
+  /**
+   * Broadcast a reputation proof to the verifier, dispatching on `chain` (consumes the nullifier on
+   * success). Uses the configured signer for each chain — `ethereumWalletClient` / `ethereumProvider`
+   * for Ethereum, `solanaWallet` for Solana. The same {@link VerifyReputationArgs} feeds both:
+   * `proofData` (from {@link generateReputationProof}), `merkleRoot`, and `externalNullifier`.
+   */
+  async submitReputationVerification(
+    chain: OpaqueScanChain,
     args: VerifyReputationArgs,
-  ): Promise<Hex> {
-    return submitVerifyReputation(
-      this.publicClient,
-      wallet,
-      this.getReputationVerifierAddress(),
-      args,
-    );
+  ): Promise<PsrTxResult> {
+    if (chain === "ethereum") {
+      // The configured wallet client carries a concrete chain at runtime (viemChain / wagmi);
+      // cast to satisfy submitVerifyReputation's `TChain extends Chain` constraint.
+      const wallet = this.evmWalletClient() as WalletClient<
+        Transport,
+        Chain,
+        Account | undefined
+      >;
+      const txHash = await submitVerifyReputation(
+        this.publicClient,
+        wallet,
+        this.getReputationVerifierAddress(),
+        args,
+      );
+      return { txHash };
+    }
+    if (chain === "solana") {
+      const wallet = this.requireSolanaWallet();
+      const adapter = this.getSolanaAdapter();
+      const txHash = await solanaSubmitReputationProof(adapter.connection, {
+        reputationProgramId: adapter.deployment.reputationVerifier,
+        groth16ProgramId: adapter.deployment.groth16Verifier,
+        proof: args.proofData.proof,
+        merkleRoot: args.merkleRoot,
+        nullifier: args.proofData.nullifier,
+        externalNullifier: args.externalNullifier,
+        attestationId: args.proofData.attestationId,
+        publicKey: wallet.publicKey,
+        signTransaction: wallet.signTransaction,
+      });
+      return { txHash };
+    }
+    throw unsupportedPsrChain(chain);
   }
 
   private getReputationVerifierAddress(): Address {

@@ -110,7 +110,45 @@ describe("OpaqueClient.registerMetaAddress", () => {
   });
 });
 
-describe("OpaqueClient.scan (offline wiring)", () => {
+describe("OpaqueClient.submitReputationVerification", () => {
+  const repArgs = {
+    proofData: {
+      proof: { pi_a: ["1", "2"], pi_b: [["1", "2"], ["3", "4"]], pi_c: ["1", "2"] },
+      publicSignals: ["1"],
+      nullifier: "1",
+      attestationId: 1,
+    },
+    merkleRoot: "1",
+    externalNullifier: "1",
+  };
+
+  it("requires an Ethereum signer for the Ethereum path", async () => {
+    const client = await OpaqueClient.create(baseConfig);
+    await expect(client.submitReputationVerification("ethereum", repArgs)).rejects.toThrow(
+      /ethereumProvider/,
+    );
+  });
+
+  it("requires a Solana wallet for the Solana path", async () => {
+    const client = await OpaqueClient.create({
+      ...baseConfig,
+      solana: { connection: emptyConnection() },
+    });
+    await expect(client.submitReputationVerification("solana", repArgs)).rejects.toThrow(
+      /solanaWallet/,
+    );
+  });
+
+  it("rejects an unsupported chain", async () => {
+    const client = await OpaqueClient.create(baseConfig);
+    await expect(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      client.submitReputationVerification("dogecoin" as any, repArgs),
+    ).rejects.toThrow(/unsupported chain/);
+  });
+});
+
+describe("OpaqueClient.scan / balances (offline wiring)", () => {
   it("returns an empty inbox when no announcements exist and cross-chain is off", async () => {
     const client = await OpaqueClient.create({
       ...baseConfig,
@@ -118,5 +156,13 @@ describe("OpaqueClient.scan (offline wiring)", () => {
     });
     const out = await client.scan({ chains: ["solana"], includeCrossChain: false });
     expect(out).toEqual([]);
+  });
+
+  it("returns no balances for an empty output set", async () => {
+    const client = await OpaqueClient.create({
+      ...baseConfig,
+      solana: { connection: emptyConnection() },
+    });
+    expect(await client.getBalancesForOutputs([])).toEqual([]);
   });
 });
