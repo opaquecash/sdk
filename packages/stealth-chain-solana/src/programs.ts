@@ -11,6 +11,9 @@ import { PublicKey } from "@solana/web3.js";
 
 export type SolanaCluster = "mainnet-beta" | "devnet" | "testnet" | "localnet";
 
+/** Wormhole Core Bridge program on Solana devnet (see memory `phase-1-uab-live`). */
+export const WORMHOLE_CORE_DEVNET = "3u8hJUVTA4jH1wYAyUur7FFZVQ8H635K3tSHHF4ssjQ5";
+
 /** Resolved Opaque program ids for a Solana cluster. */
 export interface SolanaDeployment {
   cluster: SolanaCluster;
@@ -26,6 +29,8 @@ export interface SolanaDeployment {
   groth16Verifier: PublicKey;
   /** PSR reputation proof verifier program. */
   reputationVerifier: PublicKey;
+  /** Wormhole Core Bridge program (for `announce_with_relay` cross-chain announcements). */
+  wormholeCore: PublicKey;
 }
 
 /** Devnet program ids (matches `solana/frontend/src/contracts/deployedAddresses.ts`). */
@@ -36,6 +41,7 @@ const DEVNET_IDS = {
   attestationEngineV2: "4T9kPCVCFGdEuLpEqRJihsPCbEEo2LWWDEPFvUESEqtM",
   groth16Verifier: "6mFaKyp7F4NqNeoiBLEWSqy5wJSk7rWf1EYumVXgHvhQ",
   reputationVerifier: "BSnkCDoTpgNVN5BbF3aN5L5EJPiaYUkqqj9MHp8kaqWM",
+  wormholeCore: WORMHOLE_CORE_DEVNET,
 } as const;
 
 function deploymentFromIds(
@@ -50,6 +56,7 @@ function deploymentFromIds(
     attestationEngineV2: new PublicKey(ids.attestationEngineV2),
     groth16Verifier: new PublicKey(ids.groth16Verifier),
     reputationVerifier: new PublicKey(ids.reputationVerifier),
+    wormholeCore: new PublicKey(ids.wormholeCore),
   };
 }
 
@@ -90,6 +97,9 @@ export const SCHEME_ID_SECP256K1 = 1n;
 
 /** `stealth_announcer::announce` instruction discriminator. */
 export const ANNOUNCE_DISCRIMINATOR = Uint8Array.from([7, 30, 100, 250, 110, 253, 3, 149]);
+
+/** `stealth_announcer::announce_with_relay` instruction discriminator (cross-chain UAB). */
+export const ANNOUNCE_WITH_RELAY_DISCRIMINATOR = Uint8Array.from([3, 242, 201, 249, 200, 171, 146, 79]);
 
 /** `stealth_registry::register_keys` instruction discriminator. */
 export const REGISTER_KEYS_DISCRIMINATOR = Uint8Array.from([0x29, 0x44, 0x64, 0x7d, 0x76, 0x2e, 0xfc, 0x84]);

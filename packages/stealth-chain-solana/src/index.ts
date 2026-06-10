@@ -16,8 +16,10 @@ export {
   SOLANA_DEPLOYMENTS,
   getSolanaDeployment,
   CLUSTER_ENDPOINTS,
+  WORMHOLE_CORE_DEVNET,
   SCHEME_ID_SECP256K1,
   ANNOUNCE_DISCRIMINATOR,
+  ANNOUNCE_WITH_RELAY_DISCRIMINATOR,
   REGISTER_KEYS_DISCRIMINATOR,
   ANNOUNCEMENT_EVENT_DISCRIMINATOR,
   REGISTRY_ENTRY_SEED,
@@ -54,6 +56,18 @@ export {
   buildStealthSweepTransaction,
   sweepStealthSol,
 } from "./sweep.js";
+
+export {
+  type AnnounceWithRelayInstructionParams,
+  type AnnounceWithRelayBuild,
+  deriveWormholeEmitterPda,
+  deriveWormholeConfigPda,
+  deriveWormholeFeeCollectorPda,
+  deriveWormholeSequencePda,
+  fetchWormholeMessageFee,
+  buildAnnounceWithRelayInstruction,
+  buildAnnounceWithRelay,
+} from "./relay.js";
 
 export {
   SolanaAdapter,

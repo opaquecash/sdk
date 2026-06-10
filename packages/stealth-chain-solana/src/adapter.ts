@@ -31,6 +31,11 @@ import {
   fetchAnnouncementsRange,
   watchAnnouncements,
 } from "./announcer.js";
+import {
+  type AnnounceWithRelayBuild,
+  buildAnnounceWithRelay,
+  fetchWormholeMessageFee,
+} from "./relay.js";
 import { sweepStealthSol } from "./sweep.js";
 import {
   buildRegisterKeysInstruction,
@@ -132,6 +137,32 @@ export class SolanaAdapter implements ChainAdapter {
       announcerProgramId: this.deployment.stealthAnnouncer,
       ...params,
     });
+  }
+
+  /**
+   * Build a cross-chain `announce_with_relay` instruction (emits locally AND relays over Wormhole)
+   * plus the fresh message keypair that must co-sign the transaction. Resolves the announcer and
+   * Wormhole core program ids from this adapter's deployment.
+   */
+  buildAnnounceWithRelay(params: {
+    caller: PublicKey;
+    stealthAddress: Uint8Array;
+    ephemeralPubKey: Uint8Array;
+    metadata: Uint8Array;
+    schemeId?: bigint;
+    batchId?: number;
+    wormholeFee?: bigint;
+  }): AnnounceWithRelayBuild {
+    return buildAnnounceWithRelay({
+      announcerProgramId: this.deployment.stealthAnnouncer,
+      wormholeCore: this.deployment.wormholeCore,
+      ...params,
+    });
+  }
+
+  /** Current Wormhole message fee (lamports) for `announce_with_relay`; `0n` on devnet. */
+  async fetchWormholeMessageFee(): Promise<bigint> {
+    return fetchWormholeMessageFee(this.connection, this.deployment.wormholeCore);
   }
 
   /**
