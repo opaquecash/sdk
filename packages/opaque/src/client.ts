@@ -168,8 +168,13 @@ export interface OpaqueClientConfig {
    * you still pass the same address to your wallet when sending txs).
    */
   ethereumAddress: Address;
-  /** Dynamic import URL for wasm-pack `cryptography.js`. */
-  wasmModuleSpecifier: string;
+  /**
+   * Dynamic import URL for wasm-pack `cryptography.js`. Required for scanning, sweeping, trait
+   * discovery, key reconstruction, and proof generation. **Optional** when you only use the PSR
+   * admin API (schema/attestation management uses pure-JS DKSAP, no WASM); omitting it and then
+   * calling a WASM-backed method throws a clear error.
+   */
+  wasmModuleSpecifier?: string;
   /**
    * Extra ERC-20s (and native) to aggregate. Merged with chain defaults; native uses
    * {@link NATIVE_TOKEN_ADDRESS}.
@@ -196,6 +201,12 @@ export interface OpaqueClientConfig {
    * by {@link ethereumAddress}; omit it for read-only / Solana-only usage.
    */
   ethereumProvider?: EIP1193Provider;
+  /**
+   * Pre-built viem `WalletClient` for Ethereum PSR writes (e.g. a backend issuer signing with a
+   * `privateKeyToAccount`). Takes precedence over {@link ethereumProvider}; the account it carries
+   * signs, so it should match {@link ethereumAddress}.
+   */
+  ethereumWalletClient?: WalletClient;
   /**
    * Solana wallet used to SIGN Solana PSR writes. `publicKey` is the issuer/authority; pass a
    * `@solana/web3.js` `PublicKey` or a base58 string. `signTransaction` matches the wallet-adapter
@@ -415,9 +426,9 @@ export class OpaqueClient {
    */
   static async create(config: OpaqueClientConfig): Promise<OpaqueClient> {
     const deployment = requireChainDeployment(config.chainId);
-    const wasm = await initStealthWasm({
-      moduleSpecifier: config.wasmModuleSpecifier,
-    });
+    const wasm = config.wasmModuleSpecifier
+      ? await initStealthWasm({ moduleSpecifier: config.wasmModuleSpecifier })
+      : wasmUnavailable();
     const { viewingKey, spendingKey } = deriveKeysFromSignature(
       config.walletSignature,
     );
@@ -1233,11 +1244,13 @@ export class OpaqueClient {
   /** Lazily build the signing wallet client for Ethereum PSR writes. */
   private evmWalletClient(): WalletClient {
     if (!this.evmWalletClientCache) {
-      this.evmWalletClientCache = createWalletClient({
-        account: this.config.ethereumAddress,
-        chain: this.viemChain(),
-        transport: custom(this.requireEthereumProvider()),
-      });
+      this.evmWalletClientCache =
+        this.config.ethereumWalletClient ??
+        createWalletClient({
+          account: this.config.ethereumAddress,
+          chain: this.viemChain(),
+          transport: custom(this.requireEthereumProvider()),
+        });
     }
     return this.evmWalletClientCache;
   }
@@ -1520,6 +1533,22 @@ function bytesToHex(b: Uint8Array): string {
   return Array.from(b)
     .map((x) => x.toString(16).padStart(2, "0"))
     .join("");
+}
+
+/**
+ * Stand-in WASM module for clients created without a `wasmModuleSpecifier`: any property access
+ * throws a clear error. The PSR admin API never touches it; scan/sweep/proof/trait methods do.
+ */
+function wasmUnavailable(): StealthWasmModule {
+  return new Proxy({} as StealthWasmModule, {
+    get() {
+      throw new Error(
+        "Opaque: this method requires the cryptography WASM module. Pass `wasmModuleSpecifier` to " +
+          "OpaqueClient.create. (Scanning, sweeping, trait discovery, key reconstruction, and proof " +
+          "generation need it; PSR schema/attestation admin does not.)",
+      );
+    },
+  });
 }
 
 /** All-zero bytes32 as `0x`-hex (no attestation uid). */
