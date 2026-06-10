@@ -2,6 +2,8 @@
 
 # Opaque SDK
 
+[![CI](https://github.com/opaquecash/sdk/actions/workflows/sdk-test.yml/badge.svg)](https://github.com/opaquecash/sdk/actions/workflows/sdk-test.yml)
+
 **Stealth payments · Provable reputation · Cross-chain — one TypeScript client.**
 
 [![npm](https://img.shields.io/npm/v/@opaquecash/opaque?style=flat-square&label=%40opaquecash%2Fopaque)](https://www.npmjs.com/package/@opaquecash/opaque)
