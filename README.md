@@ -177,6 +177,33 @@ npm test           # builds, then runs vitest (unit + UAB; live Sepolia test opt
 
 The live cross-chain test runs only when `SEPOLIA_RPC_URL` is set, so CI stays fast and offline.
 
+### Live PSR E2E tests (opt-in)
+
+`tests/psr-e2e.test.ts` and `tests/psr-e2e-solana.test.ts` drive the full issuer flow through
+`OpaqueClient` (register a schema, list it, issue an attestation, list it) against the live
+testnets. They SEND transactions, so they are skipped unless their env vars are set:
+
+```bash
+# Ethereum (Sepolia) — funded issuer
+SEPOLIA_RPC_URL=https://...
+SEPOLIA_ISSUER_PRIVATE_KEY=0x...
+
+# Solana (devnet) — funded issuer keypair (file path, inline JSON byte array, or base58 secret)
+SOLANA_DEVNET_RPC_URL=https://api.devnet.solana.com
+SOLANA_ISSUER_KEYPAIR=/path/to/id.json
+```
+
+Run one chain or both:
+
+```bash
+SEPOLIA_RPC_URL=… SEPOLIA_ISSUER_PRIVATE_KEY=… npm test
+SOLANA_DEVNET_RPC_URL=… SOLANA_ISSUER_KEYPAIR=… npm test
+```
+
+Each run uses a timestamped schema name so it is independent. The PSR admin API needs no WASM, so
+these tests omit `wasmModuleSpecifier`. Unit tests (including offline PSR-admin coverage in
+`tests/psr-admin.test.ts`) always run; the live tests stay skipped in CI.
+
 ## Roadmap
 
 See [ROADMAP.md](ROADMAP.md). Phase 2 (Solana adapter + universal cross-chain scan/sweep + PSR on
