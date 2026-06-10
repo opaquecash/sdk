@@ -20,6 +20,7 @@ import {
 import { sepolia } from "viem/chains";
 import {
   Connection,
+  Keypair,
   PublicKey,
   Transaction,
   type TransactionInstruction,
@@ -291,7 +292,35 @@ export interface UnifiedOwnedOutput extends OwnedStealthOutput {
   chain: OpaqueScanChain;
   /** Wormhole chain id of the source (Ethereum = 2, Solana = 1). */
   chainId: number;
+  /**
+   * How the announcement was discovered: `"native"` (the chain's own announcer) or `"uab"`
+   * (relayed cross-chain over Wormhole and re-emitted by the UABReceiver).
+   */
+  source: "native" | "uab";
 }
+
+/** A cross-chain `announceWithRelay` built for Ethereum (submit `{to,data,value}` via wallet). */
+export interface EvmAnnounceWithRelayResult {
+  chain: "ethereum";
+  to: Address;
+  data: Hex;
+  /** Wormhole message fee (wei) to send as `value`. */
+  value: bigint;
+  chainId: number;
+}
+
+/** A cross-chain `announce_with_relay` built for Solana (sign with the wallet + extra signers). */
+export interface SolanaAnnounceWithRelayResult {
+  chain: "solana";
+  instructions: TransactionInstruction[];
+  /** Extra signers (the fresh Wormhole message keypair) that must co-sign with the wallet. */
+  signers: Keypair[];
+}
+
+/** Discriminated result of {@link OpaqueClient.buildAnnounceWithRelay}. */
+export type AnnounceWithRelayResult =
+  | EvmAnnounceWithRelayResult
+  | SolanaAnnounceWithRelayResult;
 
 /**
  * Result of preparing a stealth send (ephemeral material + announce fields).
@@ -649,6 +678,52 @@ export class OpaqueClient {
   }
 
   /**
+   * Build a CROSS-CHAIN announce for either chain, dispatching on `chain`. Emits the local
+   * announcement AND relays the 96-byte payload over Wormhole. Ethereum returns a `{to,data,value}`
+   * request (`value` is the Wormhole fee); Solana returns `instructions` + extra `signers` (the
+   * fresh Wormhole message keypair) — both must co-sign with the wallet. Pass the same
+   * {@link PrepareStealthSendResult} you'd use for a native announce.
+   *
+   * EVM honours `consistencyLevel`; Solana honours `batchId` (Wormhole nonce) and `wormholeFee`
+   * (auto-fetched from the core bridge when omitted; 0 on devnet).
+   */
+  async buildAnnounceWithRelay(
+    chain: OpaqueScanChain,
+    send: PrepareStealthSendResult,
+    opts: { consistencyLevel?: number; batchId?: number; wormholeFee?: bigint } = {},
+  ): Promise<AnnounceWithRelayResult> {
+    if (chain === "ethereum") {
+      const req = await this.buildAnnounceWithRelayRequest(send, {
+        consistencyLevel: opts.consistencyLevel,
+      });
+      return {
+        chain: "ethereum",
+        to: req.to,
+        data: req.data,
+        value: req.value,
+        chainId: req.chainId,
+      };
+    }
+    if (chain === "solana") {
+      const adapter = this.getSolanaAdapter();
+      const caller = this.requireSolanaWallet().publicKey;
+      const wormholeFee =
+        opts.wormholeFee ?? (await adapter.fetchWormholeMessageFee());
+      const { instruction, messageKeypair } = adapter.buildAnnounceWithRelay({
+        caller,
+        stealthAddress: hexToBytes(send.stealthAddress),
+        ephemeralPubKey: send.ephemeralPublicKey,
+        metadata: send.metadata,
+        schemeId: send.schemeId,
+        batchId: opts.batchId,
+        wormholeFee,
+      });
+      return { chain: "solana", instructions: [instruction], signers: [messageKeypair] };
+    }
+    throw new Error(`Opaque: unsupported announce-with-relay chain "${chain as string}"`);
+  }
+
+  /**
    * Read inbound CROSS-CHAIN announcements (from the UABReceiver) as indexer-shaped rows, ready to
    * pass into {@link filterOwnedAnnouncements} alongside native rows.
    */
@@ -740,6 +815,12 @@ export class OpaqueClient {
     toBlock?: bigint;
     /** Max Solana signatures to scan (adapter default when omitted). */
     solanaLimit?: number;
+    /**
+     * Also merge cross-chain (UAB) announcements re-emitted on the EVM UABReceiver, tagged
+     * `source: "uab"`. Defaults to `true` when `"ethereum"` is scanned and a UAB deployment is
+     * configured; set `false` to skip, or `true` to force (throws if UAB is unconfigured).
+     */
+    includeCrossChain?: boolean;
   }): Promise<UnifiedOwnedOutput[]> {
     const out: UnifiedOwnedOutput[] = [];
     for (const chain of opts.chains) {
@@ -752,7 +833,23 @@ export class OpaqueClient {
       const rows = announcements.map(announcementToIndexerRow);
       const owned = await this.filterOwnedAnnouncements(rows);
       for (const o of owned) {
-        out.push({ ...o, chain, chainId: adapter.chainId });
+        out.push({ ...o, chain, chainId: adapter.chainId, source: "native" });
+      }
+    }
+
+    const uabConfigured =
+      getUabDeployment(this.config.chainId) != null ||
+      this.config.contracts?.uabReceiver != null;
+    const includeCrossChain =
+      opts.includeCrossChain ?? (opts.chains.includes("ethereum") && uabConfigured);
+    if (includeCrossChain) {
+      const crossOwned = await this.scanCrossChain({
+        fromBlock: opts.fromBlock,
+        toBlock: opts.toBlock,
+      });
+      const evmChainId = this.getAdapter("ethereum").chainId;
+      for (const o of crossOwned) {
+        out.push({ ...o, chain: "ethereum", chainId: evmChainId, source: "uab" });
       }
     }
     return out;
