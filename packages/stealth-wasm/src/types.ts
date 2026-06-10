@@ -47,16 +47,6 @@ export interface StealthWasmModule {
   ): string;
 
   /**
-   * Build a Circom JSON witness from indexed attestations (see Rust docs).
-   */
-  generate_reputation_witness(
-    attestationsJson: string,
-    targetTraitId: string,
-    stealthPrivkeyBytes: Uint8Array,
-    externalNullifier: string,
-  ): string;
-
-  /**
    * Reconstruct the 32-byte one-time stealth **private** key for spend / PSR witness input.
    */
   reconstruct_signing_key_wasm(

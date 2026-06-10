@@ -187,24 +187,6 @@ export function encodeAttestationMetadata(
 }
 
 /**
- * Run WASM witness generation for the reputation circuit from a JSON attestation list.
- */
-export function generateReputationWitnessJson(
-  wasm: StealthWasmModule,
-  attestationsJson: string,
-  targetTraitId: string,
-  stealthPrivkeyBytes: Uint8Array,
-  externalNullifier: string,
-): string {
-  return wasm.generate_reputation_witness(
-    attestationsJson,
-    targetTraitId,
-    stealthPrivkeyBytes,
-    externalNullifier,
-  );
-}
-
-/**
  * Scan announcements JSON and return JSON string of matching stealth attestations.
  */
 export function scanAttestationsJson(
