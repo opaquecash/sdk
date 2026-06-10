@@ -5,6 +5,26 @@ All notable changes to the Opaque SDK packages.
 ## Unreleased
 
 ### Added
+- **Cross-chain PSR admin API on `OpaqueClient`.** `createSchema`, `getMySchemas`,
+  `deprecateSchema`, `addSchemaDelegate`, `removeSchemaDelegate`, `getMyIssuedAttestations`, and
+  `issueAttestation` each take `chain: "ethereum" | "solana"` and behave identically, returning the
+  chain-neutral `SchemaV2` / `AttestationV2` shapes. The issuer flow matches the reference
+  frontends: recipient resolution (meta-address → DKSAP, stealth address, or raw hash), field
+  encoding, block/slot expiry conversion, authorization checks, and the announce-after-attest
+  discovery step. `OpaqueClientConfig` gains `ethereumProvider` / `ethereumWalletClient` (EVM
+  signers) and `solanaWallet` (Solana signer); `wasmModuleSpecifier` is now optional (PSR admin
+  needs no WASM, so backend issuers can skip it).
+- **`@opaquecash/psr-chain`** — EVM PSR V2 schema + attestation registry, ported from the Ethereum
+  frontend `lib/psr.ts`: schema/attestation CRUD over viem, RPC-adaptive log scanning, bundled
+  Sepolia V2 addresses, `fetchSchemasForWallet` / `fetchAttestationsIssuedBy`, and the post-attest
+  announcer call. The EVM counterpart to `@opaquecash/psr-chain-solana`.
+- **Live PSR E2E tests** (`tests/psr-e2e.test.ts`, `tests/psr-e2e-solana.test.ts`) — env-gated
+  issuer round-trips on Sepolia and Solana devnet, plus offline `tests/psr-admin.test.ts`.
+
+### Fixed
+- **`@opaquecash/opaque`**: the bundled Sepolia `opaqueReputationVerifier` now points at the V2
+  contract (`0x18cE…`); the previous V1 address used an incompatible public-signal layout.
+
 - **`@opaquecash/adapter`** — chain-agnostic `ChainAdapter` interface and chain-neutral
   `Announcement` type, mirroring the Rust `ChainAdapter` trait in `opaque-scanner`. The shared
   contract every per-chain adapter implements and the universal scanner consumes; ships the
