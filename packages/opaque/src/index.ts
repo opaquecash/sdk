@@ -14,6 +14,7 @@ export {
   type PrepareGhostReceiveResult,
   type AnnounceTransactionRequest,
   type RegisterMetaAddressTransactionRequest,
+  type RegisterMetaAddressResult,
   type ResolveRecipientMetaResult,
   type OpaqueScanChain,
   type UnifiedOwnedOutput,

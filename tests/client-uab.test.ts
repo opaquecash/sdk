@@ -71,6 +71,45 @@ describe("OpaqueClient.buildAnnounceWithRelay (Solana)", () => {
   });
 });
 
+describe("OpaqueClient.registerMetaAddress", () => {
+  it("requires an Ethereum signer for the Ethereum path", async () => {
+    const client = await OpaqueClient.create(baseConfig);
+    await expect(client.registerMetaAddress("ethereum")).rejects.toThrow(/ethereumProvider/);
+  });
+
+  it("requires a Solana wallet for the Solana path", async () => {
+    const client = await OpaqueClient.create({
+      ...baseConfig,
+      solana: { connection: emptyConnection() },
+    });
+    await expect(client.registerMetaAddress("solana")).rejects.toThrow(/solanaWallet/);
+  });
+
+  it("rejects an unsupported chain", async () => {
+    const client = await OpaqueClient.create(baseConfig);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await expect(client.registerMetaAddress("dogecoin" as any)).rejects.toThrow(
+      /unsupported register chain/,
+    );
+  });
+
+  it("reads Solana registration status from the registry PDA", async () => {
+    const meta = Uint8Array.from(Array(66).fill(0x05));
+    const acct = new Uint8Array(8 + 32 + 8 + 4 + 66);
+    acct.set(meta, 52);
+    const registered = {
+      getSignaturesForAddress: async () => [],
+      getAccountInfo: async () => ({ data: Buffer.from(acct) }),
+    } as unknown as Connection;
+    const client = await OpaqueClient.create({
+      ...baseConfig,
+      solana: { connection: registered },
+      solanaWallet: { publicKey: PublicKey.default, signTransaction: async (t) => t },
+    });
+    expect(await client.isMetaAddressRegistered("solana")).toBe(true);
+  });
+});
+
 describe("OpaqueClient.scan (offline wiring)", () => {
   it("returns an empty inbox when no announcements exist and cross-chain is off", async () => {
     const client = await OpaqueClient.create({

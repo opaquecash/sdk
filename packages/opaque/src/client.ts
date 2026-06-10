@@ -368,6 +368,16 @@ export interface RegisterMetaAddressTransactionRequest {
   metaAddressHex: Hex;
 }
 
+/** Result of {@link OpaqueClient.registerMetaAddress}. */
+export interface RegisterMetaAddressResult {
+  /** Chain the meta-address was registered on. */
+  chain: OpaqueScanChain;
+  /** EVM `0x` tx hash or Solana base58 signature. */
+  txHash: string;
+  /** The 66-byte meta-address that was registered. */
+  metaAddressHex: Hex;
+}
+
 /**
  * Result of {@link OpaqueClient.resolveRecipientMetaAddress}: registry lookup for a normal EOA.
  */
@@ -556,6 +566,56 @@ export class OpaqueClient {
       chainId: this.config.chainId,
       metaAddressHex: this.metaAddressHex,
     };
+  }
+
+  /**
+   * Register THIS wallet's 66-byte meta-address on-chain so others can resolve it, dispatching on
+   * `chain`. Submits the transaction with the configured signer (`ethereumWalletClient` /
+   * `ethereumProvider` for Ethereum, `solanaWallet` for Solana) and returns the tx id. For a
+   * calldata-only request you submit yourself, see {@link buildRegisterMetaAddressTransaction}
+   * (Ethereum) or `SolanaAdapter.buildRegisterKeysInstruction`.
+   */
+  async registerMetaAddress(chain: OpaqueScanChain): Promise<RegisterMetaAddressResult> {
+    const schemeId = BigInt(EIP5564_SCHEME_SECP256K1);
+    if (chain === "ethereum") {
+      const wc = this.evmWalletClient();
+      const txHash = await wc.writeContract({
+        address: this.registry,
+        abi: stealthMetaAddressRegistryAbi,
+        functionName: "registerKeys",
+        args: [schemeId, this.metaAddressHex],
+        account: this.config.ethereumAddress,
+        chain: wc.chain ?? this.viemChain(),
+      });
+      return { chain, txHash, metaAddressHex: this.metaAddressHex };
+    }
+    if (chain === "solana") {
+      const wallet = this.requireSolanaWallet();
+      const ix = this.getSolanaAdapter().buildRegisterKeysInstruction(
+        wallet.publicKey,
+        hexToBytes(this.metaAddressHex),
+        schemeId,
+      );
+      const txHash = await this.sendSolanaTx([ix]);
+      return { chain, txHash, metaAddressHex: this.metaAddressHex };
+    }
+    throw new Error(`Opaque: unsupported register chain "${chain as string}"`);
+  }
+
+  /**
+   * Whether THIS wallet's meta-address is already registered on `chain` (Ethereum reads its
+   * configured `ethereumAddress`; Solana reads the `solanaWallet` pubkey).
+   */
+  async isMetaAddressRegistered(chain: OpaqueScanChain): Promise<boolean> {
+    if (chain === "ethereum") {
+      const res = await this.resolveRecipientMetaAddress(this.config.ethereumAddress);
+      return res.registered;
+    }
+    if (chain === "solana") {
+      const wallet = this.requireSolanaWallet();
+      return this.getSolanaAdapter().isRegistered(wallet.publicKey.toBase58());
+    }
+    throw new Error(`Opaque: unsupported register chain "${chain as string}"`);
   }
 
   /**
