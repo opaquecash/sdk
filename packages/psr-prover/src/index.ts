@@ -1,15 +1,15 @@
 /**
- * `@opaquecash/psr-prover` — witness construction and Groth16 proving for the stealth attestation circuit.
+ * `@opaquecash/psr-prover` — witness construction and Groth16 proving for the V2
+ * `stealth_reputation` circuit.
  *
  * Depends on `snarkjs` and `circomlibjs`; browser apps should polyfill `Buffer` (see {@link ensureBufferPolyfill}).
  *
  * @packageDocumentation
  */
 
-export type { CircuitWitness } from "./witness.js";
+export type { CircuitWitness, BuildWitnessV2Params } from "./witness.js";
 export {
-  buildWitnessCircuitConsistent,
-  buildWitnessFromWasm,
+  buildWitnessV2,
   ensureBufferPolyfill,
 } from "./witness.js";
 

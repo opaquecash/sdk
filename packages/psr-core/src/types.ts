@@ -48,6 +48,8 @@ export interface MerkleRootMeta {
 
 /**
  * Groth16 proof bundle compatible with {@link submitVerifyReputation} in `@opaquecash/psr-chain`.
+ *
+ * V2 public signals: `[merkle_root, attestation_id, external_nullifier, nullifier_hash]`.
  */
 export interface ProofData {
   proof: {
@@ -56,6 +58,7 @@ export interface ProofData {
     pi_c: string[];
   };
   publicSignals: string[];
+  /** V2 `nullifier_hash` (`publicSignals[3]` = `Poseidon(stealth_pk, external_nullifier)`). */
   nullifier: string;
   attestationId: number;
 }

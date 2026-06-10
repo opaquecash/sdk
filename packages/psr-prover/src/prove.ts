@@ -10,7 +10,7 @@ type SnarkGroth16 = { fullProve: (...args: any[]) => Promise<any>; verify: (...a
  * Paths or URLs to Circom wasm + final zkey (Groth16).
  */
 export interface ArtifactPaths {
-  /** Path/URL to `stealth_attestation.wasm`. */
+  /** Path/URL to `stealth_reputation.wasm` (V2). */
   wasmPath: string;
   /** Path/URL to final `.zkey`. */
   zkeyPath: string;
@@ -22,9 +22,13 @@ export interface ArtifactPaths {
 export type ProofProgressCallback = (stage: string, percent: number) => void;
 
 /**
- * Run `snarkjs.groth16.fullProve` on a prepared witness.
+ * Run `snarkjs.groth16.fullProve` on a prepared V2 witness.
  *
- * @param witness - JSON object accepted by the Circom wasm.
+ * V2 public signals: `[merkle_root, attestation_id, external_nullifier, nullifier_hash]`.
+ * The returned {@link ProofData}'s `nullifier` field carries `nullifier_hash`
+ * (`publicSignals[3]`) — the value the on-chain verifiers consume.
+ *
+ * @param witness - JSON object accepted by the V2 Circom wasm.
  * @param artifacts - Wasm + zkey locations (browser: serve static files; Node: file paths).
  * @param onProgress - Optional UI hook.
  */
@@ -42,15 +46,14 @@ export async function generateGroth16Proof(
   );
   onProgress?.("generating-proof", 90);
 
-  const nullifier = publicSignals[0];
-  const attestationIdFromProof = Number(publicSignals[3]);
-  const isValidSignal = String(publicSignals[1] ?? "0");
-
-  if (isValidSignal !== "1") {
+  if (publicSignals.length !== 4) {
     throw new ProofError(
-      "Generated proof has is_valid≠1; witness does not satisfy the circuit.",
+      `Expected 4 V2 public signals, got ${publicSignals.length} — the configured artifacts appear to be the retired V1 circuit.`,
     );
   }
+
+  const nullifierHash = publicSignals[3];
+  const attestationIdFromProof = Number(publicSignals[1]);
 
   return {
     proof: {
@@ -59,7 +62,7 @@ export async function generateGroth16Proof(
       pi_c: proof.pi_c.slice(0, 2),
     },
     publicSignals,
-    nullifier,
+    nullifier: nullifierHash,
     attestationId: Number.isFinite(attestationIdFromProof)
       ? attestationIdFromProof
       : Number(witness.attestation_id),

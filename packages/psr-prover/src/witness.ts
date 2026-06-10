@@ -1,6 +1,4 @@
 import { Buffer } from "buffer";
-import type { StealthWasmModule } from "@opaquecash/stealth-wasm";
-import { generateReputationWitnessJson } from "@opaquecash/stealth-wasm";
 
 const TREE_DEPTH = 20;
 
@@ -21,118 +19,105 @@ export async function ensureBufferPolyfill(): Promise<void> {
 }
 
 /**
- * Circuit witness object matching `stealth_attestation` public/private input names (decimal string fields).
+ * Circuit witness matching the **V2** `stealth_reputation` input names
+ * (decimal-string field elements; see `circuits/v2/stealth_reputation.circom`).
  */
 export interface CircuitWitness {
+  stealth_pk: string;
+  schema_id: string;
+  issuer_pk_x: string;
+  trait_data_hash: string;
+  nonce: string;
+  merkle_path: string[];
+  merkle_path_indices: string[];
   merkle_root: string;
   attestation_id: string;
   external_nullifier: string;
-  stealth_private_key: string;
-  ephemeral_pubkey: [string, string];
-  announcement_attestation_id: string;
-  merkle_path_elements: string[];
-  merkle_path_indices: number[];
+  nullifier_hash: string;
 }
 
 /**
- * Build a **placeholder** Merkle witness using zero-hash siblings (matches Opaque wallet dev prover).
+ * Inputs for {@link buildWitnessV2}. The leaf commits to
+ * `Poseidon(stealth_pk, schema_id, issuer_pk_x, trait_data_hash, nonce)`.
  *
- * For production you must align leaves with the same tree the verifier admin commits on-chain.
- *
- * @param traitAttestationId - Public attestation id to prove.
- * @param stealthPrivKeyBytes - 32-byte reconstructed one-time stealth private key.
- * @param externalNullifier - Decimal string or hex-compatible numeric string for the circuit scalar.
+ * `issuerPkX`, `traitDataHash`, and `nonce` come from the attestation context.
+ * When omitted, deterministic dev-mode values are derived so the same
+ * (holder, schema) pair always rebuilds the same leaf — and therefore the same
+ * Merkle root, keeping a previously registered dev root valid across sessions.
  */
-export async function buildWitnessCircuitConsistent(
-  traitAttestationId: number,
-  stealthPrivKeyBytes: Uint8Array,
-  externalNullifier: string,
+export interface BuildWitnessV2Params {
+  /** Numeric trait/schema id — becomes both `schema_id` and the public `attestation_id`. */
+  attestationId: number | bigint;
+  /** 32-byte reconstructed one-time stealth private key. */
+  stealthPrivKeyBytes: Uint8Array;
+  /** External nullifier as a decimal string (action scope). */
+  externalNullifier: string;
+  /** Issuer's BabyJubJub x-coordinate as a field element. Dev default derived from the schema id. */
+  issuerPkX?: string | bigint;
+  /** Poseidon hash of the attestation data payload. Dev default derived from the schema id. */
+  traitDataHash?: string | bigint;
+  /** Leaf-blinding secret. Dev default: `Poseidon(stealth_pk, schema_id)` (deterministic). */
+  nonce?: string | bigint;
+}
+
+/**
+ * Build a **dev-mode** V2 Merkle witness: the trait's leaf sits at index 0 of an
+ * otherwise-empty zero-hash tree, so the resulting `merkle_root` is exactly what
+ * the verifier admin registers for this leaf via `update_merkle_root` /
+ * `submitMerkleRoot`. Production indexers must build the real announcement tree
+ * with the identical leaf formula.
+ */
+export async function buildWitnessV2(
+  params: BuildWitnessV2Params,
 ): Promise<CircuitWitness> {
   await ensureBufferPolyfill();
   const circomlib = await import("circomlibjs");
   const poseidon = await circomlib.buildPoseidon();
-  const babyjub = await circomlib.buildBabyjub();
   const F = poseidon.F;
+  const H = (inputs: bigint[]): bigint => F.toObject(poseidon(inputs)) as bigint;
 
-  const attestationId = BigInt(traitAttestationId);
-  const extNullifier = BigInt(externalNullifier);
+  const schemaId = BigInt(params.attestationId);
+  const extNullifier = BigInt(params.externalNullifier);
+  const stealthPk = F.toObject(F.e(bytesToBigInt(params.stealthPrivKeyBytes))) as bigint;
 
-  const stealthPriv = F.toObject(F.e(bytesToBigInt(stealthPrivKeyBytes)));
-  const ephemeralPriv = F.toObject(F.e(stealthPriv + extNullifier + 1n));
-  const stealthPub = babyjub.mulPointEscalar(
-    babyjub.Base8,
-    stealthPriv,
-  ) as [unknown, unknown];
-  const ephemeralPub = babyjub.mulPointEscalar(
-    babyjub.Base8,
-    ephemeralPriv,
-  ) as [unknown, unknown];
-  const sharedSecret = babyjub.mulPointEscalar(
-    ephemeralPub,
-    stealthPriv,
-  ) as [unknown, unknown];
+  const issuerPkX =
+    params.issuerPkX !== undefined ? BigInt(params.issuerPkX) : H([schemaId, 1n]);
+  const traitDataHash =
+    params.traitDataHash !== undefined ? BigInt(params.traitDataHash) : H([schemaId, 2n]);
+  const nonce =
+    params.nonce !== undefined ? BigInt(params.nonce) : H([stealthPk, schemaId]);
 
-  const stealthPubX = F.toObject(stealthPub[0]);
-  const stealthPubY = F.toObject(stealthPub[1]);
-  const ephemeralPubX = F.toObject(ephemeralPub[0]);
-  const ephemeralPubY = F.toObject(ephemeralPub[1]);
-  const sharedX = F.toObject(sharedSecret[0]);
-  const sharedY = F.toObject(sharedSecret[1]);
+  // leaf = Poseidon(stealth_pk, schema_id, issuer_pk_x, trait_data_hash, nonce)
+  const leaf = H([stealthPk, schemaId, issuerPkX, traitDataHash, nonce]);
 
-  const addressCommitment = F.toObject(
-    poseidon([sharedX, sharedY, stealthPubX, stealthPubY]),
-  );
-  const leaf = F.toObject(poseidon([addressCommitment, attestationId]));
-
-  const zeroHashes: bigint[] = [];
-  zeroHashes.push(F.toObject(poseidon([0n, 0n])));
+  // Zero-hash sibling chain: leaf at index 0 of an otherwise-empty tree.
+  const zeroHashes: bigint[] = [H([0n, 0n])];
   for (let i = 1; i < TREE_DEPTH; i++) {
-    zeroHashes.push(F.toObject(poseidon([zeroHashes[i - 1], zeroHashes[i - 1]])));
+    zeroHashes.push(H([zeroHashes[i - 1], zeroHashes[i - 1]]));
   }
 
-  const merklePathElements: string[] = [];
-  const merklePathIndices: number[] = [];
+  const merklePath: string[] = [];
+  const merklePathIndices: string[] = [];
   let current = leaf;
   for (let i = 0; i < TREE_DEPTH; i++) {
-    merklePathElements.push(zeroHashes[i].toString());
-    merklePathIndices.push(0);
-    current = F.toObject(poseidon([current, zeroHashes[i]]));
+    merklePath.push(zeroHashes[i].toString());
+    merklePathIndices.push("0");
+    current = H([current, zeroHashes[i]]);
   }
 
-  return {
-    merkle_root: current.toString(),
-    attestation_id: attestationId.toString(),
-    external_nullifier: extNullifier.toString(),
-    stealth_private_key: stealthPriv.toString(),
-    ephemeral_pubkey: [ephemeralPubX.toString(), ephemeralPubY.toString()],
-    announcement_attestation_id: attestationId.toString(),
-    merkle_path_elements: merklePathElements,
-    merkle_path_indices: merklePathIndices,
-  };
-}
+  const nullifierHash = H([stealthPk, extNullifier]);
 
-/**
- * Delegate witness construction to Rust WASM (`generate_reputation_witness`) for full Merkle paths.
- *
- * @param wasm - Initialized `@opaquecash/stealth-wasm` module.
- * @param attestationsJson - JSON array string from the scanner.
- * @param targetTraitId - Decimal string attestation id to prove.
- * @param stealthPrivkeyBytes - 32-byte one-time stealth private key.
- * @param externalNullifier - Decimal string (must match {@link buildActionScope} encoding policy).
- */
-export function buildWitnessFromWasm(
-  wasm: StealthWasmModule,
-  attestationsJson: string,
-  targetTraitId: string,
-  stealthPrivkeyBytes: Uint8Array,
-  externalNullifier: string,
-): CircuitWitness {
-  const json = generateReputationWitnessJson(
-    wasm,
-    attestationsJson,
-    targetTraitId,
-    stealthPrivkeyBytes,
-    externalNullifier,
-  );
-  return JSON.parse(json) as CircuitWitness;
+  return {
+    stealth_pk: stealthPk.toString(),
+    schema_id: schemaId.toString(),
+    issuer_pk_x: issuerPkX.toString(),
+    trait_data_hash: traitDataHash.toString(),
+    nonce: nonce.toString(),
+    merkle_path: merklePath,
+    merkle_path_indices: merklePathIndices,
+    merkle_root: current.toString(),
+    attestation_id: schemaId.toString(),
+    external_nullifier: extNullifier.toString(),
+    nullifier_hash: nullifierHash.toString(),
+  };
 }

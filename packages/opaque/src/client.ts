@@ -1818,7 +1818,8 @@ export class OpaqueClient {
   }
 
   /**
-   * JSON array string for {@link generateReputationProof} when passing `attestationsJson` (WASM Merkle witness).
+   * JSON array string in the Rust scanner's announcement format (general scanner interop;
+   * no longer consumed by {@link generateReputationProof}, which builds V2 witnesses directly).
    */
   announcementsJsonForReputationWitness(rows: IndexerAnnouncement[]): string {
     return indexerAnnouncementsToScannerJson(rows);
@@ -1840,25 +1841,31 @@ export class OpaqueClient {
   }
 
   /**
-   * Groth16 proof bundle for `OpaqueReputationVerifier` (requires `snarkjs`).
-   * When `artifacts` is omitted, wasm/zkey are loaded from the default hosted paths on opaque.cash
-   * (same as the Opaque frontend `/circuits/...` assets).
+   * V2 Groth16 proof bundle for the reputation verifiers (requires `snarkjs`).
+   * When `artifacts` is omitted, the V2 wasm/zkey are loaded from the default hosted paths on
+   * opaque.cash (same as the Opaque frontend `/circuits/v2/...` assets).
+   *
+   * Public signals: `[merkle_root, attestation_id, external_nullifier, nullifier_hash]`;
+   * `ProofData.nullifier` carries `nullifier_hash`.
    */
   async generateReputationProof(params: {
     trait: DiscoveredTrait;
     stealthPrivKeyBytes: Uint8Array;
     externalNullifier: string;
-    attestationsJson?: string;
+    issuerPkX?: string | bigint;
+    traitDataHash?: string | bigint;
+    nonce?: string | bigint;
     artifacts?: ArtifactPaths;
     onProgress?: ProofProgressCallback;
   }): Promise<ProofData> {
     await ensureBufferPolyfill();
     return runGenerateReputationProof({
-      wasm: this.wasm,
       trait: params.trait,
       stealthPrivKeyBytes: params.stealthPrivKeyBytes,
       externalNullifier: params.externalNullifier,
-      attestationsJson: params.attestationsJson,
+      issuerPkX: params.issuerPkX,
+      traitDataHash: params.traitDataHash,
+      nonce: params.nonce,
       artifacts: params.artifacts,
       onProgress: params.onProgress,
     });
