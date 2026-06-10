@@ -22,6 +22,7 @@ import {
   Connection,
   Keypair,
   PublicKey,
+  SystemProgram,
   Transaction,
   type TransactionInstruction,
 } from "@solana/web3.js";
@@ -36,6 +37,7 @@ import {
 import {
   SolanaAdapter,
   type SolanaAdapterConfig,
+  deriveStealthSolanaAddress,
   deriveStealthSolanaAddressFromStealthPrivKey,
 } from "@opaquecash/stealth-chain-solana";
 import type { Announcement, ChainAdapter } from "@opaquecash/adapter";
@@ -301,6 +303,44 @@ export interface UnifiedOwnedOutput extends OwnedStealthOutput {
   source: "native" | "uab";
 }
 
+/** Parameters for {@link OpaqueClient.sendStealthPayment}. */
+export interface SendStealthPaymentParams {
+  /** Chain to send on. */
+  chain: OpaqueScanChain;
+  /**
+   * Recipient: a 66-byte meta-address hex (used directly), a Solana base58 pubkey, or an
+   * Ethereum `0x` address — the latter two are resolved through the chain's registry.
+   */
+  recipient: string;
+  /** Amount in base units: lamports (Solana) or wei (Ethereum native). */
+  amount: bigint;
+  /** SPL mint / ERC-20 address; omit for native. Token sends are not yet supported (native only). */
+  token?: string;
+  /** Publish the discovery announcement (default `true`). */
+  announce?: boolean;
+  /** Also relay the announcement cross-chain over Wormhole (default `false`). */
+  relay?: boolean;
+  /** Solana Wormhole nonce (`batch_id`) when `relay` is set. */
+  batchId?: number;
+}
+
+/** Result of {@link OpaqueClient.sendStealthPayment}. */
+export interface SendStealthPaymentResult {
+  chain: OpaqueScanChain;
+  /** Transfer tx id (Solana bundles the announce in the same tx). */
+  txHash: string;
+  /** Separate announce tx id (Ethereum submits transfer + announce as two txs). */
+  announceTxHash?: string;
+  /** EVM-style 20-byte scanner address the recipient will detect. */
+  stealthAddress: Address;
+  /** Solana destination account (base58) the funds were sent to. */
+  destination?: string;
+  /** 33-byte compressed ephemeral public key (hex). */
+  ephemeralPublicKey: Hex;
+  /** Resolved 66-byte recipient meta-address. */
+  metaAddressHex: Hex;
+}
+
 /** Native balance of one owned stealth output, resolved per chain. */
 export interface OutputBalance {
   chain: OpaqueScanChain;
@@ -351,6 +391,11 @@ export interface PrepareStealthSendResult {
   ephemeralPrivateKey: Uint8Array;
   /** Metadata bytes for `announce` (view tag byte; extend with WASM for PSR). */
   metadata: Uint8Array;
+  /**
+   * Uncompressed (65-byte) stealth public-key point. Needed to derive the Solana destination
+   * account (`deriveStealthSolanaAddress`); not required for the EVM `announce`.
+   */
+  stealthPubKey: Uint8Array;
 }
 
 /**
@@ -646,7 +691,155 @@ export class OpaqueClient {
       ephemeralPublicKey: r.ephemeralPubKey,
       ephemeralPrivateKey: r.ephemeralPriv,
       metadata: r.metadata,
+      stealthPubKey: r.stealthPubKeyUncompressed,
     };
+  }
+
+  /**
+   * High-level send: resolve the recipient, derive a one-time stealth destination, transfer the
+   * native asset, and publish the discovery announcement — in one call, dispatching on `chain`.
+   *
+   * Solana bundles the transfer and `announce` (or `announce_with_relay` when `relay` is set) into a
+   * single transaction and returns its signature. Ethereum submits the value transfer first, then
+   * the announce, returning both tx hashes. Token (SPL/ERC-20) sends are not yet supported.
+   * Requires the chain's signer (`solanaWallet` / `ethereumWalletClient` or `ethereumProvider`).
+   */
+  async sendStealthPayment(
+    params: SendStealthPaymentParams,
+  ): Promise<SendStealthPaymentResult> {
+    if (params.token) {
+      throw new Error(
+        "Opaque: token (SPL/ERC-20) stealth sends are not yet supported; send the native asset.",
+      );
+    }
+    const metaAddressHex = await this.resolveSendRecipientMeta(
+      params.chain,
+      params.recipient,
+    );
+    const send = this.prepareStealthSend(metaAddressHex);
+    const ephemeralPublicKey = bytesToHex0x(send.ephemeralPublicKey);
+    const wantAnnounce = params.announce ?? true;
+
+    if (params.chain === "solana") {
+      const wallet = this.requireSolanaWallet();
+      const adapter = this.getSolanaAdapter();
+      const destination = deriveStealthSolanaAddress(send.stealthPubKey);
+      const ixs: TransactionInstruction[] = [
+        SystemProgram.transfer({
+          fromPubkey: wallet.publicKey,
+          toPubkey: new PublicKey(destination),
+          lamports: params.amount,
+        }),
+      ];
+      const extraSigners: Keypair[] = [];
+      if (params.relay) {
+        const wormholeFee = await adapter.fetchWormholeMessageFee();
+        const { instruction, messageKeypair } = adapter.buildAnnounceWithRelay({
+          caller: wallet.publicKey,
+          stealthAddress: hexToBytes(send.stealthAddress),
+          ephemeralPubKey: send.ephemeralPublicKey,
+          metadata: send.metadata,
+          schemeId: send.schemeId,
+          batchId: params.batchId,
+          wormholeFee,
+        });
+        ixs.push(instruction);
+        extraSigners.push(messageKeypair);
+      } else if (wantAnnounce) {
+        ixs.push(
+          adapter.buildAnnounceInstruction({
+            caller: wallet.publicKey,
+            stealthAddress: hexToBytes(send.stealthAddress),
+            ephemeralPubKey: send.ephemeralPublicKey,
+            metadata: send.metadata,
+            schemeId: send.schemeId,
+          }),
+        );
+      }
+      const txHash = await this.sendSolanaTx(ixs, extraSigners);
+      return {
+        chain: "solana",
+        txHash,
+        stealthAddress: send.stealthAddress,
+        destination,
+        ephemeralPublicKey,
+        metaAddressHex,
+      };
+    }
+
+    if (params.chain === "ethereum") {
+      const wc = this.evmWalletClient() as WalletClient<
+        Transport,
+        Chain,
+        Account | undefined
+      >;
+      const viemChain = wc.chain ?? this.viemChain();
+      const txHash = await wc.sendTransaction({
+        account: this.config.ethereumAddress,
+        chain: viemChain,
+        to: send.stealthAddress,
+        value: params.amount,
+      });
+      let announceTxHash: string | undefined;
+      if (params.relay) {
+        const req = await this.buildAnnounceWithRelayRequest(send);
+        announceTxHash = await wc.sendTransaction({
+          account: this.config.ethereumAddress,
+          chain: viemChain,
+          to: req.to,
+          data: req.data,
+          value: req.value,
+        });
+      } else if (wantAnnounce) {
+        const req = this.buildAnnounceTransactionRequest(send);
+        announceTxHash = await wc.sendTransaction({
+          account: this.config.ethereumAddress,
+          chain: viemChain,
+          to: req.to,
+          data: req.data,
+        });
+      }
+      return {
+        chain: "ethereum",
+        txHash,
+        announceTxHash,
+        stealthAddress: send.stealthAddress,
+        ephemeralPublicKey,
+        metaAddressHex,
+      };
+    }
+    throw new Error(`Opaque: unsupported send chain "${params.chain as string}"`);
+  }
+
+  /** Resolve a {@link SendStealthPaymentParams.recipient} to a 66-byte meta-address. */
+  private async resolveSendRecipientMeta(
+    chain: OpaqueScanChain,
+    recipient: string,
+  ): Promise<Hex> {
+    const trimmed = recipient.trim();
+    const asHex = (trimmed.startsWith("0x") ? trimmed : `0x${trimmed}`) as Hex;
+    if (asHex.length - 2 === 132 && /^0x[0-9a-fA-F]+$/.test(asHex)) {
+      return asHex; // already a 66-byte meta-address
+    }
+    if (chain === "ethereum") {
+      const res = await this.resolveRecipientMetaAddress(getAddress(trimmed));
+      if (!res.registered || !res.metaAddressHex) {
+        throw new Error(
+          `Opaque: recipient ${trimmed} has no registered meta-address on Ethereum.`,
+        );
+      }
+      return res.metaAddressHex;
+    }
+    if (chain === "solana") {
+      const meta = await this.getSolanaAdapter().resolveMetaAddress(trimmed);
+      if (!meta) {
+        throw new Error(
+          `Opaque: recipient ${trimmed} has no registered meta-address on Solana.`,
+        );
+      }
+      return meta;
+    }
+    throw new Error(`Opaque: unsupported send chain "${chain as string}"`);
   }
 
   /**
@@ -679,6 +872,7 @@ export class OpaqueClient {
       ephemeralPublicKey: r.ephemeralPubKey,
       ephemeralPrivateKey: r.ephemeralPriv,
       metadata: r.metadata,
+      stealthPubKey: r.stealthPubKeyUncompressed,
     });
   }
 
@@ -1494,8 +1688,15 @@ export class OpaqueClient {
     return this.solanaWalletCache;
   }
 
-  /** Sign + send + confirm a Solana transaction built from `ixs`. */
-  private async sendSolanaTx(ixs: TransactionInstruction[]): Promise<string> {
+  /**
+   * Sign + send + confirm a Solana transaction built from `ixs`. Any `extraSigners` (e.g. the
+   * Wormhole message keypair for `announce_with_relay`) partial-sign before the wallet signs as
+   * fee payer.
+   */
+  private async sendSolanaTx(
+    ixs: TransactionInstruction[],
+    extraSigners: Keypair[] = [],
+  ): Promise<string> {
     const wallet = this.requireSolanaWallet();
     const conn = this.getSolanaAdapter().connection;
     const tx = new Transaction();
@@ -1503,6 +1704,7 @@ export class OpaqueClient {
     tx.feePayer = wallet.publicKey;
     const latest = await conn.getLatestBlockhash("confirmed");
     tx.recentBlockhash = latest.blockhash;
+    if (extraSigners.length > 0) tx.partialSign(...extraSigners);
     const signed = await wallet.signTransaction(tx);
     const signature = await conn.sendRawTransaction(signed.serialize());
     await conn.confirmTransaction({ signature, ...latest }, "confirmed");

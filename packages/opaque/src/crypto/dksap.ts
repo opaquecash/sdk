@@ -104,7 +104,7 @@ function hashSharedSecret(sharedSecret: Uint8Array): {
 function stealthPointAndAddress(
   spendPubKey: Uint8Array,
   sH: Uint8Array,
-): { stealthAddress: Address } {
+): { stealthAddress: Address; stealthPubKeyUncompressed: Uint8Array } {
   const n = CURVE.CURVE.n;
   const sHBig = bytesToBigInt(sH);
   const sHMod = sHBig % n;
@@ -118,13 +118,15 @@ function stealthPointAndAddress(
   const addr = getAddress(
     (`0x${bytesToHex(hash.slice(12))}`) as Hex,
   );
-  return { stealthAddress: addr };
+  return { stealthAddress: addr, stealthPubKeyUncompressed: uncompressed };
 }
 
 export function computeStealthAddressAndViewTag(recipientMetaAddressHex: Hex): {
   ephemeralPriv: Uint8Array;
   ephemeralPubKey: Uint8Array;
   stealthAddress: Address;
+  /** Uncompressed (65-byte) stealth public-key point; used to derive the Solana destination. */
+  stealthPubKeyUncompressed: Uint8Array;
   viewTag: number;
   metadata: Uint8Array;
 } {
@@ -134,13 +136,17 @@ export function computeStealthAddressAndViewTag(recipientMetaAddressHex: Hex): {
   const ephemeralPubKey = CURVE.getPublicKey(ephemeralPriv, true);
   const shared = sharedSecretSender(ephemeralPriv, viewPubKey);
   const { sH, viewTag } = hashSharedSecret(shared);
-  const { stealthAddress } = stealthPointAndAddress(spendPubKey, sH);
+  const { stealthAddress, stealthPubKeyUncompressed } = stealthPointAndAddress(
+    spendPubKey,
+    sH,
+  );
   const metadata = new Uint8Array(1);
   metadata[0] = viewTag;
   return {
     ephemeralPriv,
     ephemeralPubKey,
     stealthAddress,
+    stealthPubKeyUncompressed,
     viewTag,
     metadata,
   };
@@ -167,6 +173,7 @@ export function recomputeStealthSendFromEphemeralPrivateKey(
   ephemeralPriv: Uint8Array;
   ephemeralPubKey: Uint8Array;
   stealthAddress: Address;
+  stealthPubKeyUncompressed: Uint8Array;
   viewTag: number;
   metadata: Uint8Array;
 } {
@@ -179,13 +186,17 @@ export function recomputeStealthSendFromEphemeralPrivateKey(
   const ephemeralPubKey = CURVE.getPublicKey(ephemeralPriv, true);
   const shared = sharedSecretSender(ephemeralPriv, viewPubKey);
   const { sH, viewTag } = hashSharedSecret(shared);
-  const { stealthAddress } = stealthPointAndAddress(spendPubKey, sH);
+  const { stealthAddress, stealthPubKeyUncompressed } = stealthPointAndAddress(
+    spendPubKey,
+    sH,
+  );
   const metadata = new Uint8Array(1);
   metadata[0] = viewTag;
   return {
     ephemeralPriv,
     ephemeralPubKey,
     stealthAddress,
+    stealthPubKeyUncompressed,
     viewTag,
     metadata,
   };

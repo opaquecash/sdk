@@ -148,6 +148,63 @@ describe("OpaqueClient.submitReputationVerification", () => {
   });
 });
 
+describe("OpaqueClient.sendStealthPayment (offline)", () => {
+  it("rejects token sends (native only)", async () => {
+    const client = await OpaqueClient.create({
+      ...baseConfig,
+      solana: { connection: emptyConnection() },
+    });
+    const meta = client.getMetaAddressHex();
+    await expect(
+      client.sendStealthPayment({ chain: "solana", recipient: meta, amount: 1n, token: "X" }),
+    ).rejects.toThrow(/token/);
+  });
+
+  it("requires a Solana wallet for the Solana path", async () => {
+    const client = await OpaqueClient.create({
+      ...baseConfig,
+      solana: { connection: emptyConnection() },
+    });
+    const meta = client.getMetaAddressHex();
+    await expect(
+      client.sendStealthPayment({ chain: "solana", recipient: meta, amount: 1000n }),
+    ).rejects.toThrow(/solanaWallet/);
+  });
+
+  it("requires an Ethereum signer for the Ethereum path", async () => {
+    const client = await OpaqueClient.create(baseConfig);
+    const meta = client.getMetaAddressHex();
+    await expect(
+      client.sendStealthPayment({ chain: "ethereum", recipient: meta, amount: 1n }),
+    ).rejects.toThrow(/ethereumProvider/);
+  });
+
+  it("throws when a Solana recipient has no registered meta-address", async () => {
+    const conn = { getAccountInfo: async () => null } as unknown as Connection;
+    const client = await OpaqueClient.create({
+      ...baseConfig,
+      solana: { connection: conn },
+      solanaWallet: { publicKey: PublicKey.default, signTransaction: async (t) => t },
+    });
+    await expect(
+      client.sendStealthPayment({
+        chain: "solana",
+        recipient: PublicKey.default.toBase58(),
+        amount: 1000n,
+      }),
+    ).rejects.toThrow(/no registered meta-address/);
+  });
+
+  it("rejects an unsupported chain", async () => {
+    const client = await OpaqueClient.create(baseConfig);
+    const meta = client.getMetaAddressHex();
+    await expect(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      client.sendStealthPayment({ chain: "dogecoin" as any, recipient: meta, amount: 1n }),
+    ).rejects.toThrow(/unsupported send chain/);
+  });
+});
+
 describe("OpaqueClient.scan / balances (offline wiring)", () => {
   it("returns an empty inbox when no announcements exist and cross-chain is off", async () => {
     const client = await OpaqueClient.create({

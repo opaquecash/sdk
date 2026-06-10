@@ -19,6 +19,8 @@ export {
   type OpaqueScanChain,
   type UnifiedOwnedOutput,
   type OutputBalance,
+  type SendStealthPaymentParams,
+  type SendStealthPaymentResult,
   type AnnounceWithRelayResult,
   type EvmAnnounceWithRelayResult,
   type SolanaAnnounceWithRelayResult,
