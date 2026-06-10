@@ -13,13 +13,14 @@ import {
 import { bigIntToBytes32, encodeU64 } from "./codec.js";
 
 /**
- * `verify_reputation` instruction discriminator as shipped by the deployed devnet program
- * (a fixed dispatch tag, not the standard `sha256("global:verify_reputation")`). Pass a custom
- * value to {@link buildVerifyReputationInstruction} if the program is redeployed with Anchor's
- * default discriminator.
+ * `verify_reputation` instruction discriminator — Anchor's standard
+ * `sha256("global:verify_reputation")[0..8]`, matching the V2 program deployed
+ * 2026-06-10. (The pre-V2 devnet build used a custom dispatch tag; that program
+ * was never functional and has been upgraded.) Pass a custom value to
+ * {@link buildVerifyReputationInstruction} only for non-standard builds.
  */
 export const VERIFY_REPUTATION_DISCRIMINATOR = Uint8Array.from([
-  0xab, 0xcd, 0xef, 0x01, 0x23, 0x45, 0x67, 0x89,
+  0xb6, 0x17, 0x39, 0x0d, 0xd6, 0x3d, 0x53, 0xd0,
 ]);
 
 const ROOT_HISTORY_SEED = "root_history";
@@ -160,7 +161,10 @@ export async function submitReputationProof(
     proof: Groth16ProofInput;
     /** Merkle root as a decimal string or bigint (field element). */
     merkleRoot: string | bigint;
-    /** Circuit nullifier output as a decimal string or bigint. */
+    /**
+     * V2 `nullifier_hash` public input (`publicSignals[3]` =
+     * `Poseidon(stealth_pk, external_nullifier)`) as a decimal string or bigint.
+     */
     nullifier: string | bigint;
     externalNullifier: string | bigint;
     attestationId: number | bigint;
