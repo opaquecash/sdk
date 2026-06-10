@@ -121,3 +121,61 @@ describe("OpaqueClient unified scan surface", () => {
     );
   });
 });
+
+describe("OpaqueClient.fetchAnnouncementRows", () => {
+  const neutral: Announcement = {
+    stealthAddress: ("0x" + "ab".repeat(20)) as `0x${string}`,
+    ephemeralPubKey: Uint8Array.from([0x02, ...Array(32).fill(0x09)]),
+    viewTag: 0x7f,
+    metadata: Uint8Array.from([0x7f, 0xb2, 0x01, 0x02]),
+    chainId: WORMHOLE_CHAIN_ETHEREUM,
+    txHash: "0x" + "ef".repeat(32),
+    cursor: 123n,
+    logIndex: 3,
+  };
+
+  function clientWith(adapters: Record<string, unknown>): OpaqueClient {
+    const client = Object.create(OpaqueClient.prototype) as OpaqueClient;
+    Object.assign(client as unknown as Record<string, unknown>, adapters);
+    return client;
+  }
+
+  it("returns unfiltered native rows with full metadata (ethereum)", async () => {
+    let seen: unknown;
+    const client = clientWith({
+      evmAdapter: {
+        chainId: WORMHOLE_CHAIN_ETHEREUM,
+        fetchAnnouncements: async (opts: unknown) => {
+          seen = opts;
+          return [neutral];
+        },
+      },
+    });
+    const rows = await client.fetchAnnouncementRows("ethereum", { fromBlock: 5n, toBlock: 9n });
+    expect(seen).toEqual({ fromCursor: 5n, toCursor: 9n, limit: undefined });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].stealthAddress).toBe(neutral.stealthAddress);
+    expect(rows[0].metadata).toBe("0x7fb20102");
+    expect(rows[0].viewTag).toBe(0x7f);
+    expect(rows[0].blockNumber).toBe("123");
+    expect(rows[0].logIndex).toBe(3);
+    expect(rows[0].transactionHash).toBe(neutral.txHash);
+  });
+
+  it("routes solana through the solana adapter with the signature limit", async () => {
+    let seen: unknown;
+    const client = clientWith({
+      solanaAdapter: {
+        chainId: WORMHOLE_CHAIN_SOLANA,
+        fetchAnnouncements: async (opts: unknown) => {
+          seen = opts;
+          return [{ ...neutral, chainId: WORMHOLE_CHAIN_SOLANA, txHash: "5xSig", cursor: 42n }];
+        },
+      },
+    });
+    const rows = await client.fetchAnnouncementRows("solana", { solanaLimit: 250 });
+    expect(seen).toEqual({ fromCursor: undefined, toCursor: undefined, limit: 250 });
+    expect(rows[0].transactionHash).toBe("5xSig");
+    expect(rows[0].blockNumber).toBe("42");
+  });
+});

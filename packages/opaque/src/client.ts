@@ -1125,6 +1125,36 @@ export class OpaqueClient {
     return out;
   }
 
+  /**
+   * Fetch ALL native announcements on `chain` as indexer-shaped rows — unfiltered, with their
+   * full on-chain `metadata`. This is the raw input for the metadata-aware scanners:
+   * {@link discoverTraits} / {@link getReputationTraitsFromAnnouncements} (PSR attestation
+   * markers) and {@link filterOwnedAnnouncements}. Unlike {@link scan}, nothing is dropped, so
+   * callers can decode announcement metadata that ownership filtering would discard.
+   *
+   * Note: cross-chain (UAB) announcements are NOT included — the 96-byte Wormhole payload only
+   * carries a 24-byte metadata tail, which cannot hold the 130-byte V2 attestation metadata.
+   * For trait discovery, fetch rows natively on each chain instead.
+   */
+  async fetchAnnouncementRows(
+    chain: OpaqueScanChain,
+    opts: {
+      /** Lower-bound cursor: EVM block number (Solana scans the most recent signatures). */
+      fromBlock?: bigint;
+      /** Upper-bound EVM block; omit for the chain tip. */
+      toBlock?: bigint;
+      /** Max Solana signatures to scan (adapter default when omitted). */
+      solanaLimit?: number;
+    } = {},
+  ): Promise<IndexerAnnouncement[]> {
+    const announcements = await this.getAdapter(chain).fetchAnnouncements({
+      fromCursor: opts.fromBlock,
+      toCursor: opts.toBlock,
+      limit: opts.solanaLimit,
+    });
+    return announcements.map(announcementToIndexerRow);
+  }
+
   /** Lazily build and cache the {@link ChainAdapter} for a chain. */
   private getAdapter(chain: OpaqueScanChain): ChainAdapter {
     if (chain === "ethereum") {
