@@ -17,6 +17,13 @@ export {
   type ResolveRecipientMetaResult,
   type OpaqueScanChain,
   type UnifiedOwnedOutput,
+  type PsrChain,
+  type PsrExpiryInput,
+  type CreateSchemaParams,
+  type IssueAttestationParams,
+  type PsrTxResult,
+  type CreateSchemaResult,
+  type IssueAttestationResult,
   announcementToIndexerRow,
 } from "./client.js";
 

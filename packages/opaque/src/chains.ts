@@ -26,8 +26,10 @@ const sepolia: OpaqueChainDeployment = {
     "0x77425e04163d608B876c7f50E34A378624A12067" as Address,
   stealthAddressAnnouncer:
     "0x840f72249A8bF6F10b0eB64412E315efBD730865" as Address,
+  // OpaqueReputationVerifierV2 (matches ethereum/frontend reputation-v2-addresses.json + spec/PSR.md);
+  // the V1 verifier at 0x30B7... used an incompatible signal layout (D3: V2 is canonical).
   opaqueReputationVerifier:
-    "0x30B750Ae9851e104F8dbB4B8082b1a07a34885B0" as Address,
+    "0x18cEc2812953c2E9bcADE20CbF6415BD36aEb44f" as Address,
   defaultTrackedTokens: [
     {
       address: NATIVE_TOKEN_ADDRESS,

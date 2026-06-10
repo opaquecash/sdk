@@ -30,6 +30,7 @@
     "@opaquecash/stealth-core": "0.1.0",
     "@opaquecash/stealth-wasm": "0.1.2",
     "@opaquecash/uab": "0.1.0",
+    "@solana/web3.js": "^1.98.4",
     "viem": "^2.21.0"
   },
   "sideEffects": false

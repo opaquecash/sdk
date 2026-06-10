@@ -2,16 +2,28 @@ import {
   type Account,
   type Address,
   type Chain,
+  type EIP1193Provider,
   type Hex,
   type PublicClient,
   type Transport,
   type WalletClient,
   createPublicClient,
+  createWalletClient,
+  custom,
+  defineChain,
   http,
   encodeFunctionData,
   getAddress,
   hexToBytes,
+  keccak256,
 } from "viem";
+import { sepolia } from "viem/chains";
+import {
+  Connection,
+  PublicKey,
+  Transaction,
+  type TransactionInstruction,
+} from "@solana/web3.js";
 import { EIP5564_SCHEME_SECP256K1 } from "@opaquecash/stealth-core";
 import {
   stealthMetaAddressRegistryAbi,
@@ -37,8 +49,16 @@ import {
 import {
   attestationsToDiscoveredTraits,
   buildActionScope,
+  encodeAttestationData,
+  encodeV2AttestationMetadata,
   externalNullifierFromScope,
+  fieldDefsToString,
+  parseFieldDefs,
+  randomNonce,
+  type AttestationV2,
+  type FieldDef,
   type ProofData,
+  type SchemaV2,
 } from "@opaquecash/psr-core";
 import type { DiscoveredTrait } from "@opaquecash/psr-core";
 import {
@@ -48,8 +68,35 @@ import {
   simulateVerifyReputation,
   submitVerifyReputation,
   verifyReputationView,
+  requirePsrV2Config,
+  fetchSchema as evmFetchSchema,
+  fetchSchemasForWallet as evmFetchSchemasForWallet,
+  fetchAttestationsIssuedBy as evmFetchAttestationsIssuedBy,
+  isAuthorizedIssuer as evmIsAuthorizedIssuer,
+  registerSchema as evmRegisterSchema,
+  addDelegate as evmAddDelegate,
+  removeDelegate as evmRemoveDelegate,
+  deprecateSchema as evmDeprecateSchema,
+  attest as evmAttest,
+  announceV2Attestation as evmAnnounceV2Attestation,
+  type EvmPsrWriteClients,
   type VerifyReputationArgs,
 } from "@opaquecash/psr-chain";
+import {
+  computeSchemaId as solanaComputeSchemaId,
+  deriveSchemaPda,
+  deriveAttestationPda,
+  buildRegisterSchemaInstruction,
+  buildAddDelegateInstruction,
+  buildRemoveDelegateInstruction,
+  buildDeprecateSchemaInstruction,
+  buildAttestInstruction,
+  fetchAllSchemas as solanaFetchAllSchemas,
+  fetchAllAttestations as solanaFetchAllAttestations,
+  fetchAttestationPda as solanaFetchAttestationPda,
+  type ParsedAttestationPda,
+  type ParsedSchemaPda,
+} from "@opaquecash/psr-chain-solana";
 import {
   ensureBufferPolyfill,
   generateReputationProof as runGenerateReputationProof,
@@ -143,6 +190,85 @@ export interface OpaqueClientConfig {
    * (defaults to devnet). The viewing/spending keys are chain-neutral — no Solana identity required.
    */
   solana?: SolanaAdapterConfig;
+  /**
+   * EIP-1193 provider (e.g. `window.ethereum` or a wallet bridge) used to SIGN Ethereum PSR
+   * writes (`createSchema`, `issueAttestation`, …). Reads never need it. Transactions are signed
+   * by {@link ethereumAddress}; omit it for read-only / Solana-only usage.
+   */
+  ethereumProvider?: EIP1193Provider;
+  /**
+   * Solana wallet used to SIGN Solana PSR writes. `publicKey` is the issuer/authority; pass a
+   * `@solana/web3.js` `PublicKey` or a base58 string. `signTransaction` matches the wallet-adapter
+   * signature. Required only for Solana PSR writes.
+   */
+  solanaWallet?: {
+    publicKey: PublicKey | string;
+    signTransaction: (transaction: Transaction) => Promise<Transaction>;
+  };
+}
+
+/** Chains the PSR admin API ({@link OpaqueClient.createSchema} etc.) targets. */
+export type PsrChain = OpaqueScanChain;
+
+/** Future block (Ethereum) / slot (Solana) for a schema or attestation expiry. */
+export interface PsrExpiryInput {
+  /** Absolute Ethereum block number or Solana slot. Takes precedence over {@link dateTime}. */
+  slotOrBlock?: number;
+  /** ISO datetime; converted to a block (~12s/block) or slot (~400ms/slot) at call time. */
+  dateTime?: string;
+}
+
+/** Parameters for {@link OpaqueClient.createSchema}. */
+export interface CreateSchemaParams {
+  /** Human-readable schema name (part of the `schemaId` preimage). */
+  name: string;
+  /** ABI-style string (`"bool passed, u64 score"`) or {@link FieldDef}s — normalized internally. */
+  fieldDefinitions: string | FieldDef[];
+  /** Whether issued attestations can be revoked (immutable after creation). */
+  revocable: boolean;
+  /** Optional resolver: EVM address or Solana program pubkey. Omit for none. */
+  resolver?: string;
+  /** Optional schema expiry. */
+  schemaExpiry?: PsrExpiryInput;
+}
+
+/** Parameters for {@link OpaqueClient.issueAttestation}. */
+export interface IssueAttestationParams {
+  /** Target schema id (`0x`-hex bytes32). */
+  schemaId: string;
+  /** 66-byte meta-address, 20-byte stealth address, or 32-byte `stealth_address_hash` (hex). */
+  recipient: string;
+  /** Field values keyed by field name — must match the schema's `fieldDefinitions`. */
+  fieldValues: Record<string, string>;
+  /** Optional attestation expiry. */
+  expiration?: PsrExpiryInput;
+  /** Optional reference uid (chained credential). */
+  refUid?: string;
+  /**
+   * Publish a discovery announcement after issuance. Defaults to `true` when `recipient` is a
+   * meta-address (only then is an ephemeral key available). No-op for raw-hash recipients.
+   */
+  announce?: boolean;
+}
+
+/** Result of a PSR write that only returns a transaction id. */
+export interface PsrTxResult {
+  /** EVM `0x` tx hash or Solana base58 signature. */
+  txHash: string;
+}
+
+/** Result of {@link OpaqueClient.createSchema}. */
+export interface CreateSchemaResult extends PsrTxResult {
+  /** Derived `schemaId` (`0x`-hex bytes32). */
+  schemaId: string;
+}
+
+/** Result of {@link OpaqueClient.issueAttestation}. */
+export interface IssueAttestationResult extends PsrTxResult {
+  /** Attestation uid (`0x`-hex bytes32). */
+  uid: string;
+  /** The 32-byte `stealth_address_hash` the attestation is bound to (`0x`-hex). */
+  stealthAddressHash: string;
 }
 
 /** Chains the unified {@link OpaqueClient.scan} can read. */
@@ -243,6 +369,11 @@ export class OpaqueClient {
   private readonly wasm: StealthWasmModule;
   private evmAdapter?: ChainAdapter;
   private solanaAdapter?: SolanaAdapter;
+  private evmWalletClientCache?: WalletClient;
+  private solanaWalletCache?: {
+    publicKey: PublicKey;
+    signTransaction: (transaction: Transaction) => Promise<Transaction>;
+  };
 
   private constructor(
     config: OpaqueClientConfig,
@@ -816,6 +947,420 @@ export class OpaqueClient {
     );
   }
 
+  // ---------------------------------------------------------------------------
+  // PSR admin API (cross-chain): schema + attestation lifecycle.
+  //
+  // Every method dispatches on `chain` and behaves identically from the caller's view, returning
+  // the chain-neutral SchemaV2 / AttestationV2 shapes. Ethereum writes need `ethereumProvider`;
+  // Solana writes need `solanaWallet`. The recipient/field/expiry/announce semantics match the
+  // reference frontends byte-for-byte.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Register a new schema (attestation class + issuance rules). Returns the tx id and derived
+   * `schemaId`. `fieldDefinitions` accepts an ABI string or {@link FieldDef}s.
+   */
+  async createSchema(chain: PsrChain, params: CreateSchemaParams): Promise<CreateSchemaResult> {
+    const fieldDefinitions = normalizeFieldDefs(params.fieldDefinitions);
+    if (chain === "ethereum") {
+      const cfg = requirePsrV2Config(this.config.chainId);
+      const clients = this.evmWriteClients();
+      const schemaExpiryBlock = await this.resolveEvmExpiryBlock(params.schemaExpiry);
+      return evmRegisterSchema(clients, cfg, {
+        name: params.name,
+        fieldDefinitions,
+        revocable: params.revocable,
+        resolver: params.resolver ? getAddress(params.resolver) : undefined,
+        schemaExpiryBlock,
+      });
+    }
+    if (chain === "solana") {
+      const wallet = this.requireSolanaWallet();
+      const programs = this.getSolanaAdapter().deployment;
+      const schemaId = solanaComputeSchemaId(wallet.publicKey, params.name);
+      const schemaPda = deriveSchemaPda(programs.schemaRegistry, wallet.publicKey, schemaId);
+      const schemaExpirySlot = await this.resolveSolanaExpirySlot(params.schemaExpiry);
+      const ix = buildRegisterSchemaInstruction({
+        schemaRegistryProgramId: programs.schemaRegistry,
+        authority: wallet.publicKey,
+        schemaPda,
+        schemaId,
+        name: params.name,
+        fieldDefinitions,
+        revocable: params.revocable,
+        resolver: params.resolver ? new PublicKey(params.resolver) : null,
+        schemaExpirySlot,
+      });
+      const txHash = await this.sendSolanaTx([ix]);
+      return { txHash, schemaId: bytesToHex0x(schemaId) };
+    }
+    throw unsupportedPsrChain(chain);
+  }
+
+  /** Schemas where this client's wallet is the authority OR an authorized delegate. */
+  async getMySchemas(chain: PsrChain): Promise<SchemaV2[]> {
+    if (chain === "ethereum") {
+      const cfg = requirePsrV2Config(this.config.chainId);
+      return evmFetchSchemasForWallet(this.publicClient, cfg, this.config.ethereumAddress);
+    }
+    if (chain === "solana") {
+      const wallet = this.requireSolanaWallet();
+      const programs = this.getSolanaAdapter().deployment;
+      const me = wallet.publicKey.toBase58();
+      const all = await solanaFetchAllSchemas(this.getSolanaAdapter().connection, programs.schemaRegistry);
+      return all
+        .filter(
+          ({ schema }) =>
+            schema.authority.toBase58() === me ||
+            schema.delegates.some((d) => d.toBase58() === me),
+        )
+        .map(({ address, schema }) => solanaSchemaToV2(address, schema));
+    }
+    throw unsupportedPsrChain(chain);
+  }
+
+  /** Authority-only, irreversible: deprecate a schema (blocks new attestations). */
+  async deprecateSchema(chain: PsrChain, schemaId: string): Promise<PsrTxResult> {
+    if (chain === "ethereum") {
+      const cfg = requirePsrV2Config(this.config.chainId);
+      const txHash = await evmDeprecateSchema(this.evmWriteClients(), cfg, schemaId as Hex);
+      return { txHash };
+    }
+    if (chain === "solana") {
+      const wallet = this.requireSolanaWallet();
+      const programs = this.getSolanaAdapter().deployment;
+      const schemaPda = deriveSchemaPda(programs.schemaRegistry, wallet.publicKey, hexToBytes(schemaId as Hex));
+      const ix = buildDeprecateSchemaInstruction({
+        schemaRegistryProgramId: programs.schemaRegistry,
+        authority: wallet.publicKey,
+        schemaPda,
+      });
+      return { txHash: await this.sendSolanaTx([ix]) };
+    }
+    throw unsupportedPsrChain(chain);
+  }
+
+  /** Authority-only: authorize `delegate` to issue under `schemaId`. */
+  async addSchemaDelegate(chain: PsrChain, schemaId: string, delegate: string): Promise<PsrTxResult> {
+    if (chain === "ethereum") {
+      const cfg = requirePsrV2Config(this.config.chainId);
+      const txHash = await evmAddDelegate(this.evmWriteClients(), cfg, schemaId as Hex, getAddress(delegate));
+      return { txHash };
+    }
+    if (chain === "solana") {
+      const wallet = this.requireSolanaWallet();
+      const programs = this.getSolanaAdapter().deployment;
+      const schemaPda = deriveSchemaPda(programs.schemaRegistry, wallet.publicKey, hexToBytes(schemaId as Hex));
+      const ix = buildAddDelegateInstruction({
+        schemaRegistryProgramId: programs.schemaRegistry,
+        authority: wallet.publicKey,
+        schemaPda,
+        delegate: new PublicKey(delegate),
+      });
+      return { txHash: await this.sendSolanaTx([ix]) };
+    }
+    throw unsupportedPsrChain(chain);
+  }
+
+  /** Authority-only: revoke a delegate's issuance rights under `schemaId`. */
+  async removeSchemaDelegate(chain: PsrChain, schemaId: string, delegate: string): Promise<PsrTxResult> {
+    if (chain === "ethereum") {
+      const cfg = requirePsrV2Config(this.config.chainId);
+      const txHash = await evmRemoveDelegate(this.evmWriteClients(), cfg, schemaId as Hex, getAddress(delegate));
+      return { txHash };
+    }
+    if (chain === "solana") {
+      const wallet = this.requireSolanaWallet();
+      const programs = this.getSolanaAdapter().deployment;
+      const schemaPda = deriveSchemaPda(programs.schemaRegistry, wallet.publicKey, hexToBytes(schemaId as Hex));
+      const ix = buildRemoveDelegateInstruction({
+        schemaRegistryProgramId: programs.schemaRegistry,
+        authority: wallet.publicKey,
+        schemaPda,
+        delegate: new PublicKey(delegate),
+      });
+      return { txHash: await this.sendSolanaTx([ix]) };
+    }
+    throw unsupportedPsrChain(chain);
+  }
+
+  /** Attestations issued by this client's wallet. */
+  async getMyIssuedAttestations(chain: PsrChain): Promise<AttestationV2[]> {
+    if (chain === "ethereum") {
+      const cfg = requirePsrV2Config(this.config.chainId);
+      return evmFetchAttestationsIssuedBy(this.publicClient, cfg, this.config.ethereumAddress);
+    }
+    if (chain === "solana") {
+      const wallet = this.requireSolanaWallet();
+      const programs = this.getSolanaAdapter().deployment;
+      const me = wallet.publicKey.toBase58();
+      const all = await solanaFetchAllAttestations(this.getSolanaAdapter().connection, programs.attestationEngineV2);
+      return all
+        .filter(({ attestation }) => attestation.issuer.toBase58() === me)
+        .map(({ address, attestation }) => solanaAttestationToV2(address, attestation));
+    }
+    throw unsupportedPsrChain(chain);
+  }
+
+  /**
+   * Issue a schema-bound attestation against a stealth identity. Resolves the recipient to a
+   * `stealth_address_hash`, encodes the field values per the schema, submits `attest`, and
+   * (when the recipient is a meta-address and `announce` is not `false`) publishes a discovery
+   * announcement so the recipient's scanner can find the trait. Verifies the wallet is an
+   * authorized issuer first.
+   */
+  async issueAttestation(chain: PsrChain, params: IssueAttestationParams): Promise<IssueAttestationResult> {
+    if (chain === "ethereum") {
+      const cfg = requirePsrV2Config(this.config.chainId);
+      const clients = this.evmWriteClients();
+      const schema = await evmFetchSchema(this.publicClient, cfg, params.schemaId as Hex);
+      if (!schema) throw new Error(`Opaque PSR: schema ${params.schemaId} not found on Ethereum.`);
+      const authorized = await evmIsAuthorizedIssuer(this.publicClient, cfg, params.schemaId as Hex, this.config.ethereumAddress);
+      if (!authorized) {
+        throw new Error(`Opaque PSR: ${this.config.ethereumAddress} is not an authorized issuer for schema ${params.schemaId}.`);
+      }
+      const resolved = this.resolveStealthAddressHash(params.recipient);
+      const expirationBlock = await this.resolveEvmExpiryBlock(params.expiration);
+      const { txHash, uid } = await evmAttest(clients, cfg, {
+        schemaId: params.schemaId as Hex,
+        stealthAddressHash: resolved.hash,
+        fieldValues: params.fieldValues,
+        fieldDefs: parseFieldDefs(schema.fieldDefinitions),
+        expirationBlock,
+        refUid: params.refUid as Hex | undefined,
+      });
+      const wantAnnounce = params.announce ?? resolved.ephemeralPubKey != null;
+      if (wantAnnounce && resolved.stealthAddress && resolved.ephemeralPubKey && resolved.viewTag != null) {
+        const metadata = encodeV2AttestationMetadata({
+          viewTag: resolved.viewTag,
+          schemaId: params.schemaId as Hex,
+          issuer: this.config.ethereumAddress,
+          uid,
+          nonce: randomNonce(),
+        });
+        try {
+          await evmAnnounceV2Attestation(clients, this.announcer, {
+            stealthAddress: resolved.stealthAddress,
+            ephemeralPubKey: bytesToHex0x(resolved.ephemeralPubKey),
+            metadata,
+          });
+        } catch {
+          // Announcement is a discovery convenience; issuance already succeeded.
+        }
+      }
+      return { txHash, uid, stealthAddressHash: resolved.hash };
+    }
+    if (chain === "solana") {
+      const wallet = this.requireSolanaWallet();
+      const conn = this.getSolanaAdapter().connection;
+      const programs = this.getSolanaAdapter().deployment;
+      const schemaIdBytes = hexToBytes(params.schemaId as Hex);
+      const found = await this.fetchSolanaSchemaById(schemaIdBytes);
+      if (!found) throw new Error(`Opaque PSR: schema ${params.schemaId} not found on Solana.`);
+      const me = wallet.publicKey.toBase58();
+      const authorized =
+        found.schema.authority.toBase58() === me ||
+        found.schema.delegates.some((d) => d.toBase58() === me);
+      if (!authorized) {
+        throw new Error(`Opaque PSR: ${me} is not an authorized issuer for schema ${params.schemaId}.`);
+      }
+      const resolved = this.resolveStealthAddressHash(params.recipient);
+      const stealthHashBytes = hexToBytes(resolved.hash);
+      const dataBytes = hexToBytes(encodeAttestationData(params.fieldValues, parseFieldDefs(found.schema.fieldDefinitions)));
+      const expirationSlot = await this.resolveSolanaExpirySlot(params.expiration);
+      const refUid = params.refUid ? hexToBytes(params.refUid as Hex) : new Uint8Array(32);
+      const schemaPda = deriveSchemaPda(programs.schemaRegistry, found.schema.authority, schemaIdBytes);
+      const attestationPda = deriveAttestationPda(programs.attestationEngineV2, schemaIdBytes, wallet.publicKey, stealthHashBytes);
+      const resolverProgram = found.schema.resolver.equals(PublicKey.default) ? undefined : found.schema.resolver;
+      const ix = buildAttestInstruction({
+        attestationProgramId: programs.attestationEngineV2,
+        issuer: wallet.publicKey,
+        schemaPda,
+        attestationPda,
+        stealthAddressHash: stealthHashBytes,
+        data: dataBytes,
+        expirationSlot,
+        refUid,
+        resolverProgram,
+      });
+      const txHash = await this.sendSolanaTx([ix]);
+      const confirmed = await solanaFetchAttestationPda(conn, attestationPda);
+      const uid = confirmed ? bytesToHex0x(confirmed.uid) : ZERO_BYTES32_HEX;
+      const wantAnnounce = params.announce ?? resolved.ephemeralPubKey != null;
+      if (wantAnnounce && confirmed && resolved.stealthAddress && resolved.ephemeralPubKey && resolved.viewTag != null) {
+        const metadata = buildSolanaV2AttestationMetadata(resolved.viewTag, schemaIdBytes, wallet.publicKey, confirmed.uid);
+        const announceIx = this.getSolanaAdapter().buildAnnounceInstruction({
+          caller: wallet.publicKey,
+          stealthAddress: hexToBytes(resolved.stealthAddress),
+          ephemeralPubKey: resolved.ephemeralPubKey,
+          metadata,
+        });
+        try {
+          await this.sendSolanaTx([announceIx]);
+        } catch {
+          // Announcement is a discovery convenience; issuance already succeeded.
+        }
+      }
+      return { txHash, uid, stealthAddressHash: resolved.hash };
+    }
+    throw unsupportedPsrChain(chain);
+  }
+
+  // --- PSR admin helpers ----------------------------------------------------
+
+  /** EIP-1193 provider or a clear error. */
+  private requireEthereumProvider(): EIP1193Provider {
+    const p = this.config.ethereumProvider;
+    if (!p) {
+      throw new Error(
+        "Opaque PSR: ethereumProvider is required for Ethereum PSR writes. Pass it to OpaqueClient.create.",
+      );
+    }
+    return p;
+  }
+
+  /** Viem chain for the configured chain id (bundled Sepolia, else a minimal definition). */
+  private viemChain(): Chain {
+    if (this.config.chainId === sepolia.id) return sepolia;
+    return defineChain({
+      id: this.config.chainId,
+      name: `chain-${this.config.chainId}`,
+      nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+      rpcUrls: { default: { http: [this.config.rpcUrl] } },
+    });
+  }
+
+  /** Lazily build the signing wallet client for Ethereum PSR writes. */
+  private evmWalletClient(): WalletClient {
+    if (!this.evmWalletClientCache) {
+      this.evmWalletClientCache = createWalletClient({
+        account: this.config.ethereumAddress,
+        chain: this.viemChain(),
+        transport: custom(this.requireEthereumProvider()),
+      });
+    }
+    return this.evmWalletClientCache;
+  }
+
+  private evmWriteClients(): EvmPsrWriteClients {
+    return {
+      publicClient: this.publicClient,
+      walletClient: this.evmWalletClient(),
+      account: this.config.ethereumAddress,
+    };
+  }
+
+  /** Solana signer (normalized) or a clear error. */
+  private requireSolanaWallet(): {
+    publicKey: PublicKey;
+    signTransaction: (transaction: Transaction) => Promise<Transaction>;
+  } {
+    if (!this.solanaWalletCache) {
+      const w = this.config.solanaWallet;
+      if (!w) {
+        throw new Error(
+          "Opaque PSR: solanaWallet ({ publicKey, signTransaction }) is required for Solana PSR writes. Pass it to OpaqueClient.create.",
+        );
+      }
+      this.solanaWalletCache = {
+        publicKey: typeof w.publicKey === "string" ? new PublicKey(w.publicKey) : w.publicKey,
+        signTransaction: w.signTransaction,
+      };
+    }
+    return this.solanaWalletCache;
+  }
+
+  /** Sign + send + confirm a Solana transaction built from `ixs`. */
+  private async sendSolanaTx(ixs: TransactionInstruction[]): Promise<string> {
+    const wallet = this.requireSolanaWallet();
+    const conn = this.getSolanaAdapter().connection;
+    const tx = new Transaction();
+    for (const ix of ixs) tx.add(ix);
+    tx.feePayer = wallet.publicKey;
+    const latest = await conn.getLatestBlockhash("confirmed");
+    tx.recentBlockhash = latest.blockhash;
+    const signed = await wallet.signTransaction(tx);
+    const signature = await conn.sendRawTransaction(signed.serialize());
+    await conn.confirmTransaction({ signature, ...latest }, "confirmed");
+    return signature;
+  }
+
+  /**
+   * Resolve a recipient to a 32-byte `stealth_address_hash` (and, for a meta-address, the
+   * ephemeral material needed to announce). Matches the frontends: 66-byte meta-address → DKSAP →
+   * `keccak256(stealthAddress)`; 20-byte stealth address → `keccak256(address)`; 32-byte → as-is.
+   */
+  private resolveStealthAddressHash(recipient: string): {
+    hash: Hex;
+    stealthAddress?: Address;
+    ephemeralPubKey?: Uint8Array;
+    viewTag?: number;
+  } {
+    const trimmed = recipient.trim();
+    const normalized = (trimmed.startsWith("0x") ? trimmed : `0x${trimmed}`) as Hex;
+    const hexLen = normalized.length - 2;
+    if (hexLen === 132) {
+      const r = computeStealthAddressAndViewTag(normalized);
+      return {
+        hash: keccak256(r.stealthAddress),
+        stealthAddress: r.stealthAddress,
+        ephemeralPubKey: r.ephemeralPubKey,
+        viewTag: r.viewTag,
+      };
+    }
+    if (hexLen === 40) {
+      return { hash: keccak256(getAddress(normalized)), stealthAddress: getAddress(normalized) };
+    }
+    if (hexLen === 64) {
+      return { hash: normalized };
+    }
+    throw new Error(
+      "Opaque PSR: recipient must be a 66-byte meta-address, 20-byte stealth address, or 32-byte hash (hex).",
+    );
+  }
+
+  /** Resolve a {@link PsrExpiryInput} to an absolute Ethereum block (0 = no expiry). */
+  private async resolveEvmExpiryBlock(expiry?: PsrExpiryInput): Promise<bigint> {
+    if (!expiry) return 0n;
+    if (expiry.slotOrBlock != null) return BigInt(expiry.slotOrBlock);
+    if (expiry.dateTime) {
+      const targetMs = Date.parse(expiry.dateTime);
+      if (!Number.isFinite(targetMs)) throw new Error(`Opaque PSR: invalid expiry dateTime "${expiry.dateTime}".`);
+      const nowMs = Date.now();
+      if (targetMs <= nowMs) throw new Error("Opaque PSR: expiry must be in the future.");
+      const current = await this.publicClient.getBlockNumber();
+      const blocks = Math.ceil((targetMs - nowMs) / 12_000); // ~12s/block
+      return current + BigInt(Math.max(1, blocks));
+    }
+    return 0n;
+  }
+
+  /** Resolve a {@link PsrExpiryInput} to an absolute Solana slot (0 = no expiry). */
+  private async resolveSolanaExpirySlot(expiry?: PsrExpiryInput): Promise<number> {
+    if (!expiry) return 0;
+    if (expiry.slotOrBlock != null) return Number(expiry.slotOrBlock);
+    if (expiry.dateTime) {
+      const targetMs = Date.parse(expiry.dateTime);
+      if (!Number.isFinite(targetMs)) throw new Error(`Opaque PSR: invalid expiry dateTime "${expiry.dateTime}".`);
+      const nowMs = Date.now();
+      if (targetMs <= nowMs) throw new Error("Opaque PSR: expiry must be in the future.");
+      const currentSlot = await this.getSolanaAdapter().connection.getSlot("confirmed");
+      const slots = Math.ceil((targetMs - nowMs) / 400); // ~400ms/slot
+      return currentSlot + Math.max(1, slots);
+    }
+    return 0;
+  }
+
+  /** Find a Solana schema by `schemaId` (PSR schemas have no id-indexed PDA across authorities). */
+  private async fetchSolanaSchemaById(
+    schemaIdBytes: Uint8Array,
+  ): Promise<{ address: PublicKey; schema: ParsedSchemaPda } | null> {
+    const programs = this.getSolanaAdapter().deployment;
+    const all = await solanaFetchAllSchemas(this.getSolanaAdapter().connection, programs.schemaRegistry);
+    const target = bytesToHex(schemaIdBytes);
+    return all.find(({ schema }) => bytesToHex(schema.schemaId) === target) ?? null;
+  }
+
   /**
    * JSON array string for {@link generateReputationProof} when passing `attestationsJson` (WASM Merkle witness).
    */
@@ -975,6 +1520,79 @@ function bytesToHex(b: Uint8Array): string {
   return Array.from(b)
     .map((x) => x.toString(16).padStart(2, "0"))
     .join("");
+}
+
+/** All-zero bytes32 as `0x`-hex (no attestation uid). */
+const ZERO_BYTES32_HEX = ("0x" + "00".repeat(32)) as Hex;
+
+function bytesToHex0x(b: Uint8Array): Hex {
+  return ("0x" + bytesToHex(b)) as Hex;
+}
+
+function unsupportedPsrChain(chain: string): Error {
+  return new Error(`Opaque PSR: unsupported chain "${chain}".`);
+}
+
+/** Accept an ABI string or {@link FieldDef}s and return the canonical ABI string. */
+function normalizeFieldDefs(fieldDefinitions: string | FieldDef[]): string {
+  return typeof fieldDefinitions === "string"
+    ? fieldDefinitions
+    : fieldDefsToString(fieldDefinitions);
+}
+
+/** Convert a parsed Solana schema PDA into the chain-neutral {@link SchemaV2}. */
+function solanaSchemaToV2(address: PublicKey, s: ParsedSchemaPda): SchemaV2 {
+  return {
+    address: address.toBase58(),
+    schemaId: bytesToHex0x(s.schemaId),
+    authority: s.authority.toBase58(),
+    resolver: s.resolver.toBase58(),
+    revocable: s.revocable,
+    name: s.name,
+    fieldDefinitions: s.fieldDefinitions,
+    version: s.version,
+    delegates: s.delegates.map((d) => d.toBase58()),
+    createdAt: Number(s.createdAt),
+    schemaExpirySlot: Number(s.schemaExpirySlot),
+    deprecated: s.deprecated,
+  };
+}
+
+/** Convert a parsed Solana attestation PDA into the chain-neutral {@link AttestationV2}. */
+function solanaAttestationToV2(address: PublicKey, a: ParsedAttestationPda): AttestationV2 {
+  return {
+    address: address.toBase58(),
+    uid: bytesToHex0x(a.uid),
+    schemaId: bytesToHex0x(a.schemaId),
+    issuer: a.issuer.toBase58(),
+    stealthAddressHash: bytesToHex0x(a.stealthAddressHash),
+    dataHex: bytesToHex0x(a.data),
+    createdAt: Number(a.createdAt),
+    expirationSlot: Number(a.expirationSlot),
+    revocationSlot: Number(a.revocationSlot),
+    refUid: bytesToHex0x(a.refUid),
+  };
+}
+
+/**
+ * Build the 130-byte V2 attestation announcement metadata for Solana (the issuer is a 32-byte
+ * Ed25519 pubkey, so this is the Solana counterpart to `encodeV2AttestationMetadata`):
+ * `viewTag(1) || 0xB2 || schemaId(32) || issuer(32) || uid(32) || nonce(32)`.
+ */
+function buildSolanaV2AttestationMetadata(
+  viewTag: number,
+  schemaIdBytes: Uint8Array,
+  issuer: PublicKey,
+  uid: Uint8Array,
+): Uint8Array {
+  const metadata = new Uint8Array(130);
+  metadata[0] = viewTag & 0xff;
+  metadata[1] = 0xb2;
+  metadata.set(schemaIdBytes.slice(0, 32), 2);
+  metadata.set(issuer.toBytes(), 34);
+  metadata.set(uid.slice(0, 32), 66);
+  metadata.set(hexToBytes(randomNonce()), 98);
+  return metadata;
 }
 
 /**
