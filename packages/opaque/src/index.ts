@@ -126,7 +126,7 @@ export {
   type SolanaUnifiedSigner,
 } from "./signer.js";
 
-// Identity resolution beyond the on-chain registries (CSAP §2.9).
+// Identity resolution beyond the on-chain registries (CSAP §2.9 + spec/ONS.md).
 export {
   OPAQUE_META_RECORD_KEY,
   META_ADDRESS_VALUE_PREFIX,
@@ -134,8 +134,11 @@ export {
   parseMetaAddressValue,
   extractMetaAddressFromDidDocument,
   ipfsPathFromInput,
+  isOnsNameInput,
+  isSnsNameInput,
   resolveIpfsDidMetaAddress,
   resolveEnsMetaAddress,
+  resolveSnsMetaAddress,
   type ResolvedRecipient,
   type ResolvedRecipientSource,
   type ResolveTransports,

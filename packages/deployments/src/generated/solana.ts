@@ -13,6 +13,8 @@ export const SOLANA_PROGRAM_IDS: Record<string, SolanaProgramIds> = {
     groth16Verifier: "6mFaKyp7F4NqNeoiBLEWSqy5wJSk7rWf1EYumVXgHvhQ",
     reputationVerifier: "BSnkCDoTpgNVN5BbF3aN5L5EJPiaYUkqqj9MHp8kaqWM",
     uabReceiver: "7d4Sbmmpy954JwSNdjwf31pgbeWUQqwpgNdte5iy3vuM",
+    onsMirror: "D7EXuwcsGrUAYC6k69jrKvsKethsKYgR1pokkTcFvWsk",
+    onsRegistration: "5gfK9J8FJi3FpsQD33Hkrfwq8KqN4yadB2PDF9REnwMT",
     wormholeCore: "3u8hJUVTA4jH1wYAyUur7FFZVQ8H635K3tSHHF4ssjQ5",
   },
 };

@@ -33,7 +33,13 @@ export type ResolvedRecipientSource =
   | "evm-registry"
   | "solana-registry"
   | "ipfs-did"
-  | "ens-text";
+  | "ens-text"
+  /** ONS name served from the Solana mirror PDA (no Ethereum RPC; spec/ONS.md §3). */
+  | "ons-mirror"
+  /** ONS name served from the canonical OpaqueNameRegistry on Ethereum (ENSIP-10). */
+  | "ons-registry"
+  /** `.sol` domain `com.opaque.meta` SNS Records V2 TXT record (CSAP §2.9). */
+  | "sns-record";
 
 /** Result of {@link OpaqueClient.resolveRecipient}. */
 export interface ResolvedRecipient {
@@ -103,6 +109,51 @@ export function isSolanaPubkeyInput(input: string): boolean {
 /** True for an ENS name (`*.eth`). */
 export function isEnsNameInput(input: string): boolean {
   return /^[^\s.]+(\.[^\s.]+)*\.eth$/i.test(input);
+}
+
+/** True for an SNS name (`*.sol`). */
+export function isSnsNameInput(input: string): boolean {
+  return /^[^\s.]+(\.[^\s.]+)*\.sol$/i.test(input);
+}
+
+/**
+ * True when `input` is a depth-1 subname of the ONS parent in force
+ * (`alice.opq.eth` for parent `opq.eth`; `alice.opqtest.eth` on testnet).
+ */
+export function isOnsNameInput(input: string, parentName: string): boolean {
+  const lower = input.toLowerCase();
+  const parent = parentName.toLowerCase();
+  if (!lower.endsWith(`.${parent}`)) return false;
+  const label = lower.slice(0, lower.length - parent.length - 1);
+  return /^[a-z0-9-]{1,63}$/.test(label) && !label.startsWith("-") && !label.endsWith("-");
+}
+
+/**
+ * Read the `com.opaque.meta` TXT record of a `.sol` domain through the injected
+ * SNS reader and validate it. Throws when no reader is configured, the record is
+ * unset, or the value is not a valid meta-address.
+ */
+export async function resolveSnsMetaAddress(
+  name: string,
+  snsGetRecord: ((domain: string, key: string) => Promise<string | null>) | undefined,
+): Promise<Hex> {
+  if (!snsGetRecord) {
+    throw new Error(
+      "Opaque: .sol resolution needs SNS access (pass `solana` to OpaqueClient.create for the " +
+        "bundled Records V2 TXT reader, or inject sns.getRecord).",
+    );
+  }
+  const value = await snsGetRecord(name, OPAQUE_META_RECORD_KEY);
+  if (!value) {
+    throw new Error(`Opaque: ${name} has no ${OPAQUE_META_RECORD_KEY} (TXT) record.`);
+  }
+  const meta = parseMetaAddressValue(value);
+  if (!meta) {
+    throw new Error(
+      `Opaque: ${name}'s TXT record is not a valid 66-byte meta-address.`,
+    );
+  }
+  return meta;
 }
 
 /**

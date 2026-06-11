@@ -87,6 +87,18 @@ export {
 } from "./bytes.js";
 
 export {
+  ONS_MIRROR_RECORD_SEED,
+  ONS_RECORD_DISCRIMINATOR,
+  type OnsMirrorRecord,
+  onsNameHash,
+  getOnsMirrorRecordPda,
+  decodeOnsMirrorRecord,
+  fetchOnsMirrorRecord,
+} from "./ons.js";
+
+export { snsDomainName, fetchSnsTxtRecord } from "./sns.js";
+
+export {
   decodeCrossChainAnnouncementEventData,
   decodeCrossChainAnnouncementLogs,
   crossChainEventToAnnouncement,

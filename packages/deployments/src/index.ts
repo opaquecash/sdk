@@ -16,14 +16,16 @@ export type {
   EvmAddress,
   EvmContracts,
   EvmDeployment,
+  OnsDeployment,
   SolanaProgramIds,
 } from "./types.js";
 
 import { EVM_DEPLOYMENTS } from "./generated/ethereum.js";
+import { ONS_DEPLOYMENTS } from "./generated/ons.js";
 import { SOLANA_PROGRAM_IDS } from "./generated/solana.js";
-import type { EvmDeployment, SolanaProgramIds } from "./types.js";
+import type { EvmDeployment, OnsDeployment, SolanaProgramIds } from "./types.js";
 
-export { EVM_DEPLOYMENTS, SOLANA_PROGRAM_IDS };
+export { EVM_DEPLOYMENTS, ONS_DEPLOYMENTS, SOLANA_PROGRAM_IDS };
 export * from "./generated/abis.js";
 
 /** Chain ids with a bundled EVM deployment. */
@@ -66,4 +68,9 @@ export function requireSolanaProgramIds(cluster: string): SolanaProgramIds {
     );
   }
   return d;
+}
+
+/** Resolve the bundled ONS deployment for a canonical chain id, or `undefined`. */
+export function getOnsDeployment(chainId: number): OnsDeployment | undefined {
+  return ONS_DEPLOYMENTS[chainId];
 }

@@ -39,7 +39,10 @@ import {
   type SolanaAdapterConfig,
   deriveStealthSolanaAddress,
   deriveStealthSolanaAddressFromStealthPrivKey,
+  fetchOnsMirrorRecord,
+  fetchSnsTxtRecord,
 } from "@opaquecash/stealth-chain-solana";
+import { getOnsDeployment } from "@opaquecash/deployments";
 import type { Announcement, ChainAdapter } from "@opaquecash/adapter";
 import {
   checkAnnouncement,
@@ -140,16 +143,20 @@ import {
   indexerAnnouncementsToScannerJson,
   indexerAnnouncementToScannerRecord,
 } from "./indexer/normalize.js";
-import { normalize as normalizeEnsName } from "viem/ens";
+import { namehash, normalize as normalizeEnsName } from "viem/ens";
 import {
   ipfsPathFromInput,
   isEnsNameInput,
   isEvmAddressInput,
+  isOnsNameInput,
+  isSnsNameInput,
   isSolanaPubkeyInput,
   META_ADDRESS_VALUE_PREFIX,
+  OPAQUE_META_RECORD_KEY,
   parseMetaAddressValue,
   resolveEnsMetaAddress,
   resolveIpfsDidMetaAddress,
+  resolveSnsMetaAddress,
   type ResolvedRecipient,
   type ResolveTransports,
 } from "./resolve.js";
@@ -258,6 +265,28 @@ export interface OpaqueClientConfig {
   ipfs?: {
     gateways?: readonly string[];
     fetch?: typeof fetch;
+  };
+  /**
+   * ONS (Opaque Name Service, spec/ONS.md) overrides for `*.opq.eth`-style names.
+   * Defaults come from `@opaquecash/deployments` for {@link chainId} (testnet parent:
+   * `opqtest.eth`). Resolution tries the Solana mirror PDA first (needs {@link solana}),
+   * then falls back to the canonical OpaqueNameRegistry over {@link rpcUrl}.
+   */
+  ons?: {
+    /** Parent name in force (lowercase, e.g. `"opq.eth"`). */
+    parentName?: string;
+    /** Canonical OpaqueNameRegistry address (ENSIP-10 wildcard resolver). */
+    registry?: Address;
+    /** `ons-mirror` program id (base58) on the configured Solana cluster. */
+    mirrorProgram?: string;
+  };
+  /**
+   * SNS read access for `.sol` recipients (CSAP §2.9 TXT record). Defaults to the
+   * bundled Records V2 TXT reader over the {@link solana} connection; inject
+   * `getRecord` to mock or to use a custom record key/source.
+   */
+  sns?: {
+    getRecord?: (domain: string, key: string) => Promise<string | null>;
   };
 }
 
@@ -729,7 +758,9 @@ export class OpaqueClient {
    * | `0x…` 20-byte EVM address | ERC-6538 `StealthMetaAddressRegistry` |
    * | Solana base58 pubkey | `stealth-registry` PDA (needs {@link OpaqueClientConfig.solana}) |
    * | `ipfs://…` / bare CID | DID document fetch via gateways (configure {@link OpaqueClientConfig.ipfs}) |
-   * | `*.eth` | ENS `com.opaque.meta` text record (needs {@link OpaqueClientConfig.ens}) |
+   * | ONS name (`alice.opq.eth`) | Solana mirror PDA first, canonical OpaqueNameRegistry fallback (spec/ONS.md) |
+   * | other `*.eth` | ENS `com.opaque.meta` text record (needs {@link OpaqueClientConfig.ens}) |
+   * | `*.sol` | SNS Records V2 TXT record (needs {@link OpaqueClientConfig.solana} or `sns.getRecord`) |
    *
    * Every path point-validates both 33-byte halves before returning. Throws with a
    * path-specific message when the identity is unregistered, unset, or malformed.
@@ -754,8 +785,16 @@ export class OpaqueClient {
       return { metaAddressHex: meta, source: "ipfs-did", input: trimmed };
     }
     if (isEnsNameInput(trimmed)) {
+      const onsParent = this.onsParentName();
+      if (onsParent && isOnsNameInput(trimmed, onsParent)) {
+        return this.resolveOnsName(trimmed.toLowerCase());
+      }
       const meta = await resolveEnsMetaAddress(trimmed, this.resolveTransports());
       return { metaAddressHex: meta, source: "ens-text", input: trimmed };
+    }
+    if (isSnsNameInput(trimmed)) {
+      const meta = await resolveSnsMetaAddress(trimmed.toLowerCase(), this.snsGetRecord());
+      return { metaAddressHex: meta, source: "sns-record", input: trimmed };
     }
     if (isEvmAddressInput(trimmed)) {
       const res = await this.resolveRecipientMetaAddress(trimmed as Address);
@@ -782,6 +821,88 @@ export class OpaqueClient {
     throw new Error(
       `Opaque: unrecognised recipient "${trimmed}" (expected a meta-address, EVM address, Solana pubkey, ipfs:// CID, or *.eth name).`,
     );
+  }
+
+  /**
+   * Resolve an Opaque Name Service name (`alice.opq.eth`; `alice.opqtest.eth` on
+   * testnet) to its meta-address (spec/ONS.md §7). Tries the Solana mirror PDA first
+   * (one account read, no Ethereum RPC — needs {@link OpaqueClientConfig.solana});
+   * falls back to the canonical OpaqueNameRegistry (ENSIP-10) over the scan RPC.
+   * Both paths point-validate the 33-byte halves. Mirror records lag the canonical
+   * record by Wormhole latency (eventually consistent, canonical-chain-wins).
+   */
+  async resolveOpaqueMetaAddress(name: string): Promise<Hex> {
+    const { metaAddressHex } = await this.resolveOnsName(name.trim().toLowerCase());
+    return metaAddressHex;
+  }
+
+  /** ONS resolution: mirror-PDA-first, canonical-registry fallback. */
+  private async resolveOnsName(name: string): Promise<ResolvedRecipient> {
+    // 1. Solana mirror PDA (cheap, chain-local).
+    if (this.config.solana) {
+      try {
+        const adapter = this.getSolanaAdapter();
+        const mirrorProgram = this.config.ons?.mirrorProgram
+          ? new PublicKey(this.config.ons.mirrorProgram)
+          : adapter.deployment.onsMirror;
+        const record = await fetchOnsMirrorRecord(adapter.connection, mirrorProgram, name);
+        if (record) {
+          const meta = parseMetaAddressValue(record.metaAddressHex);
+          if (meta) return { metaAddressHex: meta, source: "ons-mirror", input: name };
+        }
+      } catch {
+        // Mirror unavailable (RPC outage, cluster mismatch): fall through to canonical.
+      }
+    }
+    // 2. Canonical OpaqueNameRegistry (ENSIP-10 wildcard resolver) on the EVM RPC.
+    const registry =
+      this.config.ons?.registry ?? getOnsDeployment(this.config.chainId)?.registry;
+    if (!registry) {
+      throw new Error(
+        `Opaque: cannot resolve ${name} — no ONS mirror record and no OpaqueNameRegistry ` +
+          `is known for chainId ${this.config.chainId} (pass config.ons.registry).`,
+      );
+    }
+    const value = (await this.publicClient.readContract({
+      address: registry,
+      abi: [
+        {
+          type: "function",
+          name: "text",
+          stateMutability: "view",
+          inputs: [
+            { name: "node", type: "bytes32" },
+            { name: "key", type: "string" },
+          ],
+          outputs: [{ name: "", type: "string" }],
+        },
+      ] as const,
+      functionName: "text",
+      args: [namehash(name), OPAQUE_META_RECORD_KEY],
+    })) as string;
+    const meta = value ? parseMetaAddressValue(value) : null;
+    if (!meta) {
+      throw new Error(`Opaque: ${name} is not registered with the Opaque Name Service.`);
+    }
+    return { metaAddressHex: meta, source: "ons-registry", input: name };
+  }
+
+  /** The ONS parent name in force (config override, else bundled deployment), if any. */
+  private onsParentName(): string | undefined {
+    return (
+      this.config.ons?.parentName?.toLowerCase() ??
+      getOnsDeployment(this.config.chainId)?.parentName
+    );
+  }
+
+  /** The `.sol` record reader: injected, else the bundled Records V2 TXT reader. */
+  private snsGetRecord():
+    | ((domain: string, key: string) => Promise<string | null>)
+    | undefined {
+    if (this.config.sns?.getRecord) return this.config.sns.getRecord;
+    if (!this.config.solana) return undefined;
+    return (domain: string) =>
+      fetchSnsTxtRecord(this.getSolanaAdapter().connection, domain);
   }
 
   /** Build the {@link ResolveTransports} from config (ENS reader + IPFS gateways). */

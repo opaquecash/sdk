@@ -37,6 +37,10 @@ export interface SolanaDeployment {
   wormholeCore: PublicKey;
   /** UAB receiver program (re-emits Ethereum-originated announcements from verified VAAs). */
   uabReceiver: PublicKey;
+  /** ONS read-only mirror program (spec/ONS.md §3). */
+  onsMirror: PublicKey;
+  /** ONS Solana-originated claims program (spec/ONS.md §4.2). */
+  onsRegistration: PublicKey;
 }
 
 function deploymentFromIds(
@@ -53,6 +57,8 @@ function deploymentFromIds(
     reputationVerifier: new PublicKey(ids.reputationVerifier),
     wormholeCore: new PublicKey(ids.wormholeCore),
     uabReceiver: new PublicKey(ids.uabReceiver),
+    onsMirror: new PublicKey(ids.onsMirror),
+    onsRegistration: new PublicKey(ids.onsRegistration),
   };
 }
 
