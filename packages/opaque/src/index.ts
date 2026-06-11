@@ -116,6 +116,21 @@ export {
   indexerAnnouncementsToScannerJson,
 } from "./indexer/normalize.js";
 
+// Identity resolution beyond the on-chain registries (CSAP §2.9).
+export {
+  OPAQUE_META_RECORD_KEY,
+  META_ADDRESS_VALUE_PREFIX,
+  DEFAULT_IPFS_GATEWAYS,
+  parseMetaAddressValue,
+  extractMetaAddressFromDidDocument,
+  ipfsPathFromInput,
+  resolveIpfsDidMetaAddress,
+  resolveEnsMetaAddress,
+  type ResolvedRecipient,
+  type ResolvedRecipientSource,
+  type ResolveTransports,
+} from "./resolve.js";
+
 export {
   SETUP_MESSAGE,
   deriveKeysFromSignature,

@@ -139,6 +139,19 @@ import {
   indexerAnnouncementsToScannerJson,
   indexerAnnouncementToScannerRecord,
 } from "./indexer/normalize.js";
+import { normalize as normalizeEnsName } from "viem/ens";
+import {
+  ipfsPathFromInput,
+  isEnsNameInput,
+  isEvmAddressInput,
+  isSolanaPubkeyInput,
+  META_ADDRESS_VALUE_PREFIX,
+  parseMetaAddressValue,
+  resolveEnsMetaAddress,
+  resolveIpfsDidMetaAddress,
+  type ResolvedRecipient,
+  type ResolveTransports,
+} from "./resolve.js";
 import type {
   IndexerAnnouncement,
   OwnedStealthOutput,
@@ -220,6 +233,25 @@ export interface OpaqueClientConfig {
   solanaWallet?: {
     publicKey: PublicKey | string;
     signTransaction: (transaction: Transaction) => Promise<Transaction>;
+  };
+  /**
+   * ENS read access for {@link OpaqueClient.resolveRecipient} of `*.eth` names
+   * (CSAP §2.9 `com.opaque.meta` text record). Pass an ENS-capable viem `PublicClient`
+   * (mainnet or Sepolia — the scan RPC usually is not), or inject a custom `getText`
+   * reader (tests, alternative resolvers). Optional: only `*.eth` resolution needs it.
+   */
+  ens?: {
+    client?: PublicClient;
+    getText?: (name: string, key: string) => Promise<string | null>;
+  };
+  /**
+   * IPFS access for {@link OpaqueClient.resolveRecipient} of `ipfs://` DID documents.
+   * Defaults to public gateways over `globalThis.fetch`; inject `fetch` to mock or to
+   * route through a local node / Helia gateway.
+   */
+  ipfs?: {
+    gateways?: readonly string[];
+    fetch?: typeof fetch;
   };
 }
 
@@ -612,6 +644,86 @@ export class OpaqueClient {
   }
 
   /**
+   * Resolve ANY supported recipient identity to its 66-byte meta-address (CSAP §2.9):
+   *
+   * | Input | Path |
+   * |-------|------|
+   * | 66-byte meta-address (optionally `st:opq:`-prefixed) | validated and passed through |
+   * | `0x…` 20-byte EVM address | ERC-6538 `StealthMetaAddressRegistry` |
+   * | Solana base58 pubkey | `stealth-registry` PDA (needs {@link OpaqueClientConfig.solana}) |
+   * | `ipfs://…` / bare CID | DID document fetch via gateways (configure {@link OpaqueClientConfig.ipfs}) |
+   * | `*.eth` | ENS `com.opaque.meta` text record (needs {@link OpaqueClientConfig.ens}) |
+   *
+   * Every path point-validates both 33-byte halves before returning. Throws with a
+   * path-specific message when the identity is unregistered, unset, or malformed.
+   */
+  async resolveRecipient(input: string): Promise<ResolvedRecipient> {
+    const trimmed = input.trim();
+    if (
+      trimmed.startsWith(META_ADDRESS_VALUE_PREFIX) ||
+      /^(0x)?[0-9a-fA-F]{132}$/.test(trimmed)
+    ) {
+      const meta = parseMetaAddressValue(trimmed);
+      if (!meta) {
+        throw new Error(
+          "Opaque: recipient looks like a meta-address but failed validation (both 33-byte halves must be valid compressed secp256k1 points).",
+        );
+      }
+      return { metaAddressHex: meta, source: "meta-address", input: trimmed };
+    }
+    const cidPath = ipfsPathFromInput(trimmed);
+    if (cidPath) {
+      const meta = await resolveIpfsDidMetaAddress(cidPath, this.resolveTransports());
+      return { metaAddressHex: meta, source: "ipfs-did", input: trimmed };
+    }
+    if (isEnsNameInput(trimmed)) {
+      const meta = await resolveEnsMetaAddress(trimmed, this.resolveTransports());
+      return { metaAddressHex: meta, source: "ens-text", input: trimmed };
+    }
+    if (isEvmAddressInput(trimmed)) {
+      const res = await this.resolveRecipientMetaAddress(trimmed as Address);
+      if (!res.registered || !res.metaAddressHex) {
+        throw new Error(
+          `Opaque: ${trimmed} has no registered meta-address on Ethereum.`,
+        );
+      }
+      return {
+        metaAddressHex: res.metaAddressHex,
+        source: "evm-registry",
+        input: trimmed,
+      };
+    }
+    if (isSolanaPubkeyInput(trimmed)) {
+      const meta = await this.getSolanaAdapter().resolveMetaAddress(trimmed);
+      if (!meta) {
+        throw new Error(
+          `Opaque: ${trimmed} has no registered meta-address on Solana.`,
+        );
+      }
+      return { metaAddressHex: meta, source: "solana-registry", input: trimmed };
+    }
+    throw new Error(
+      `Opaque: unrecognised recipient "${trimmed}" (expected a meta-address, EVM address, Solana pubkey, ipfs:// CID, or *.eth name).`,
+    );
+  }
+
+  /** Build the {@link ResolveTransports} from config (ENS reader + IPFS gateways). */
+  private resolveTransports(): ResolveTransports {
+    const ens = this.config.ens;
+    const ensGetText =
+      ens?.getText ??
+      (ens?.client
+        ? (name: string, key: string) =>
+            ens.client!.getEnsText({ name: normalizeEnsName(name), key })
+        : undefined);
+    return {
+      ensGetText,
+      ipfsGateways: this.config.ipfs?.gateways,
+      fetchFn: this.config.ipfs?.fetch,
+    };
+  }
+
+  /**
    * Encode `registerKeys` for the user's meta-address (they submit with `ethereumAddress`).
    */
   buildRegisterMetaAddressTransaction(): RegisterMetaAddressTransactionRequest {
@@ -811,35 +923,18 @@ export class OpaqueClient {
     throw new Error(`Opaque: unsupported send chain "${params.chain as string}"`);
   }
 
-  /** Resolve a {@link SendStealthPaymentParams.recipient} to a 66-byte meta-address. */
+  /**
+   * Resolve a {@link SendStealthPaymentParams.recipient} to a 66-byte meta-address.
+   * Delegates to {@link resolveRecipient}, so sends accept every supported identity
+   * form (meta-address, registry address/pubkey, `ipfs://` DID, `*.eth`) on any chain —
+   * meta-addresses are chain-neutral.
+   */
   private async resolveSendRecipientMeta(
-    chain: OpaqueScanChain,
+    _chain: OpaqueScanChain,
     recipient: string,
   ): Promise<Hex> {
-    const trimmed = recipient.trim();
-    const asHex = (trimmed.startsWith("0x") ? trimmed : `0x${trimmed}`) as Hex;
-    if (asHex.length - 2 === 132 && /^0x[0-9a-fA-F]+$/.test(asHex)) {
-      return asHex; // already a 66-byte meta-address
-    }
-    if (chain === "ethereum") {
-      const res = await this.resolveRecipientMetaAddress(getAddress(trimmed));
-      if (!res.registered || !res.metaAddressHex) {
-        throw new Error(
-          `Opaque: recipient ${trimmed} has no registered meta-address on Ethereum.`,
-        );
-      }
-      return res.metaAddressHex;
-    }
-    if (chain === "solana") {
-      const meta = await this.getSolanaAdapter().resolveMetaAddress(trimmed);
-      if (!meta) {
-        throw new Error(
-          `Opaque: recipient ${trimmed} has no registered meta-address on Solana.`,
-        );
-      }
-      return meta;
-    }
-    throw new Error(`Opaque: unsupported send chain "${chain as string}"`);
+    const resolved = await this.resolveRecipient(recipient);
+    return resolved.metaAddressHex;
   }
 
   /**
