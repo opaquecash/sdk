@@ -8,11 +8,15 @@
  */
 
 import { PublicKey } from "@solana/web3.js";
+import {
+  SOLANA_PROGRAM_IDS,
+  type SolanaProgramIds,
+} from "@opaquecash/deployments";
 
 export type SolanaCluster = "mainnet-beta" | "devnet" | "testnet" | "localnet";
 
 /** Wormhole Core Bridge program on Solana devnet (see memory `phase-1-uab-live`). */
-export const WORMHOLE_CORE_DEVNET = "3u8hJUVTA4jH1wYAyUur7FFZVQ8H635K3tSHHF4ssjQ5";
+export const WORMHOLE_CORE_DEVNET = SOLANA_PROGRAM_IDS["devnet"].wormholeCore;
 
 /** Resolved Opaque program ids for a Solana cluster. */
 export interface SolanaDeployment {
@@ -35,21 +39,9 @@ export interface SolanaDeployment {
   uabReceiver: PublicKey;
 }
 
-/** Devnet program ids (matches `solana/frontend/src/contracts/deployedAddresses.ts`). */
-const DEVNET_IDS = {
-  stealthRegistry: "E9LBRG5eP2kvuNfveouqQ9tA5P6nrpyLyWFjH9MFYVno",
-  stealthAnnouncer: "HGFn2fH7bVQ5cSuiG52NjzN9m11YrB3FZUfoN9b9A5jf",
-  schemaRegistry: "FbgMJYGWnLKLcrKYS1NxM5uER1ihQkYLMTLs4STuDMWB",
-  attestationEngineV2: "4T9kPCVCFGdEuLpEqRJihsPCbEEo2LWWDEPFvUESEqtM",
-  groth16Verifier: "6mFaKyp7F4NqNeoiBLEWSqy5wJSk7rWf1EYumVXgHvhQ",
-  reputationVerifier: "BSnkCDoTpgNVN5BbF3aN5L5EJPiaYUkqqj9MHp8kaqWM",
-  wormholeCore: WORMHOLE_CORE_DEVNET,
-  uabReceiver: "7d4Sbmmpy954JwSNdjwf31pgbeWUQqwpgNdte5iy3vuM",
-} as const;
-
 function deploymentFromIds(
   cluster: SolanaCluster,
-  ids: typeof DEVNET_IDS,
+  ids: SolanaProgramIds,
 ): SolanaDeployment {
   return {
     cluster,
@@ -64,10 +56,14 @@ function deploymentFromIds(
   };
 }
 
-/** Bundled deployments by cluster. Extend as mainnet ids land. */
-export const SOLANA_DEPLOYMENTS: Partial<Record<SolanaCluster, SolanaDeployment>> = {
-  devnet: deploymentFromIds("devnet", DEVNET_IDS),
-};
+/** Bundled deployments by cluster (from the generated `@opaquecash/deployments`). */
+export const SOLANA_DEPLOYMENTS: Partial<Record<SolanaCluster, SolanaDeployment>> =
+  Object.fromEntries(
+    Object.entries(SOLANA_PROGRAM_IDS).map(([cluster, ids]) => [
+      cluster,
+      deploymentFromIds(cluster as SolanaCluster, ids),
+    ]),
+  );
 
 /**
  * Resolve the bundled {@link SolanaDeployment} for a cluster (default `devnet`), or throw

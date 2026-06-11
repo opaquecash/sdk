@@ -1,10 +1,10 @@
 /**
  * Bundled EVM PSR V2 deployments (schema registry, attestation registry, Groth16 verifier,
- * reputation verifier). Addresses MUST match
- * `ethereum/frontend/src/contracts/reputation-v2-addresses.json`.
+ * reputation verifier), sourced from the generated `@opaquecash/deployments` registry.
  */
 
 import type { Address } from "viem";
+import { EVM_DEPLOYMENTS } from "@opaquecash/deployments";
 
 /** Resolved V2 PSR contract bundle for one chain. */
 export interface PsrV2Config {
@@ -16,18 +16,18 @@ export interface PsrV2Config {
   fromBlock: bigint;
 }
 
-/** Sepolia V2 PSR deployment. */
-const SEPOLIA_PSR_V2: PsrV2Config = {
-  schemaRegistry: "0xAA5F3942117bD48E7Cd81A500A8b7Bbb122ae80f" as Address,
-  attestationRegistry: "0x049aF9CBB62387034CDd5403794a94E9c000ACCc" as Address,
-  groth16VerifierV2: "0x49A212bdbc52F1cb6C93623FC7814a61Fc71ddB5" as Address,
-  reputationVerifierV2: "0x18cEc2812953c2E9bcADE20CbF6415BD36aEb44f" as Address,
-  fromBlock: 11_019_444n,
-};
-
-const PSR_V2_CONFIGS: Record<number, PsrV2Config> = {
-  11155111: SEPOLIA_PSR_V2,
-};
+const PSR_V2_CONFIGS: Record<number, PsrV2Config> = Object.fromEntries(
+  Object.values(EVM_DEPLOYMENTS).map((d) => [
+    d.chainId,
+    {
+      schemaRegistry: d.contracts.opaqueSchemaRegistry as Address,
+      attestationRegistry: d.contracts.opaqueAttestationRegistry as Address,
+      groth16VerifierV2: d.contracts.groth16VerifierV2 as Address,
+      reputationVerifierV2: d.contracts.opaqueReputationVerifierV2 as Address,
+      fromBlock: d.psrFromBlock,
+    },
+  ]),
+);
 
 /** Chain ids with a bundled V2 PSR deployment. */
 export function getPsrV2ChainIds(): number[] {

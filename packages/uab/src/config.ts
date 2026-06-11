@@ -1,4 +1,5 @@
 import type { Address } from "viem";
+import { EVM_DEPLOYMENTS } from "@opaquecash/deployments";
 
 /** Wormhole chain ids used by Opaque deployments. */
 export const WORMHOLE_CHAIN = { ethereum: 2, solana: 1 } as const;
@@ -25,18 +26,21 @@ export interface UabDeployment {
   fromBlock: bigint;
 }
 
-/** Known UAB deployments by EVM chain id. */
-export const UAB_DEPLOYMENTS: Record<number, UabDeployment> = {
-  11155111: {
-    chainId: 11155111,
-    whChain: WORMHOLE_CHAIN.ethereum,
-    wormholeCore: "0x4a8bc80Ed5a4067f1CCf107057b8270E0cC11A78",
-    uabSender: "0x872787c0BD1A0C71e6D1be5a144EB044e0CB2069",
-    uabReceiver: "0x9eF189f7a263F870Cf80f9A89d1349A6AF7b15cF",
-    sourceWhChain: WORMHOLE_CHAIN.solana,
-    fromBlock: 0n,
-  },
-};
+/** Known UAB deployments by EVM chain id (from the generated `@opaquecash/deployments`). */
+export const UAB_DEPLOYMENTS: Record<number, UabDeployment> = Object.fromEntries(
+  Object.values(EVM_DEPLOYMENTS).map((d) => [
+    d.chainId,
+    {
+      chainId: d.chainId,
+      whChain: d.wormhole.chainId,
+      wormholeCore: d.contracts.wormholeCore as Address,
+      uabSender: d.contracts.uabSender as Address,
+      uabReceiver: d.contracts.uabReceiver as Address,
+      sourceWhChain: d.wormhole.sourceChainId,
+      fromBlock: d.uabFromBlock,
+    },
+  ]),
+);
 
 export function getUabDeployment(chainId: number): UabDeployment | undefined {
   return UAB_DEPLOYMENTS[chainId];

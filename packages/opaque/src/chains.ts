@@ -1,5 +1,10 @@
 import type { Address } from "viem";
 import type { TrackedToken } from "@opaquecash/stealth-balance";
+import {
+  EVM_DEPLOYMENTS,
+  getEvmChainIds,
+  type EvmDeployment,
+} from "@opaquecash/deployments";
 
 /** Sentinel for native ETH in balance aggregation (not a contract). */
 export const NATIVE_TOKEN_ADDRESS =
@@ -19,45 +24,32 @@ export interface OpaqueChainDeployment {
   defaultTrackedTokens: TrackedToken[];
 }
 
-const sepolia: OpaqueChainDeployment = {
-  chainId: 11155111,
-  name: "Sepolia",
-  stealthMetaAddressRegistry:
-    "0x77425e04163d608B876c7f50E34A378624A12067" as Address,
-  stealthAddressAnnouncer:
-    "0x840f72249A8bF6F10b0eB64412E315efBD730865" as Address,
-  // OpaqueReputationVerifierV2 (matches ethereum/frontend reputation-v2-addresses.json + spec/PSR.md);
-  // the V1 verifier at 0x30B7... used an incompatible signal layout (D3: V2 is canonical).
-  opaqueReputationVerifier:
-    "0x18cEc2812953c2E9bcADE20CbF6415BD36aEb44f" as Address,
-  defaultTrackedTokens: [
-    {
-      address: NATIVE_TOKEN_ADDRESS,
-      symbol: "ETH",
-      decimals: 18,
-    },
-    {
-      address: "0x73197e8303904862d543f9706E8422F634D713cb" as Address,
-      symbol: "USDC",
-      decimals: 6,
-    },
-    {
-      address: "0x6Ff8Afb2aA9eB5A89Ce86c44DD460bD17C92f644" as Address,
-      symbol: "USDT",
-      decimals: 6,
-    },
-  ],
-};
+/** Map a generated {@link EvmDeployment} record onto the client-facing bundle. */
+function fromGenerated(d: EvmDeployment): OpaqueChainDeployment {
+  return {
+    chainId: d.chainId,
+    name: d.name,
+    stealthMetaAddressRegistry: d.contracts.stealthMetaAddressRegistry,
+    stealthAddressAnnouncer: d.contracts.stealthAddressAnnouncer,
+    // V2 verifier is canonical (D3); the V1 verifier used an incompatible signal layout.
+    opaqueReputationVerifier: d.contracts.opaqueReputationVerifierV2,
+    defaultTrackedTokens: d.tokens.map((t) => ({
+      address: t.address,
+      symbol: t.symbol,
+      decimals: t.decimals,
+    })),
+  };
+}
 
-const DEPLOYMENTS: Record<number, OpaqueChainDeployment> = {
-  11155111: sepolia,
-};
+const DEPLOYMENTS: Record<number, OpaqueChainDeployment> = Object.fromEntries(
+  Object.values(EVM_DEPLOYMENTS).map((d) => [d.chainId, fromGenerated(d)]),
+);
 
 /**
  * Chain IDs with bundled Opaque contract addresses.
  */
 export function getSupportedChainIds(): number[] {
-  return Object.keys(DEPLOYMENTS).map(Number);
+  return getEvmChainIds();
 }
 
 /**

@@ -1,7 +1,7 @@
 {
-  "name": "@opaquecash/psr-chain",
+  "name": "@opaquecash/deployments",
   "version": "0.1.0",
-  "description": "Viem integration for OpaqueReputationVerifier (roots, verify, submit)",
+  "description": "Generated Opaque deployment registry: EVM contract addresses + ABIs and Solana program ids, emitted by the chain repos' generate scripts",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -17,11 +17,6 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "clean": "rm -rf dist"
-  },
-  "dependencies": {
-    "@opaquecash/deployments": "0.1.0",
-    "@opaquecash/psr-core": "0.1.0",
-    "viem": "^2.21.0"
   },
   "sideEffects": false
 }
