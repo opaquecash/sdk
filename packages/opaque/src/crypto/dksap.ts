@@ -52,6 +52,18 @@ export function stealthMetaAddressToHex(metaAddress: Uint8Array): Hex {
   return (`0x${bytesToHex(metaAddress)}`) as Hex;
 }
 
+/**
+ * A fresh random 66-byte meta-address from two throwaway private keys. The keys are
+ * discarded — nobody can ever scan for or spend from announcements made to it. Used by
+ * the anonymity-set utilities to mint decoy recipients (guide §17).
+ */
+export function generateRandomMetaAddress(): Hex {
+  const viewingKey = CURVE.utils.randomPrivateKey();
+  const spendingKey = CURVE.utils.randomPrivateKey();
+  const { metaAddress } = keysToStealthMetaAddress(viewingKey, spendingKey);
+  return stealthMetaAddressToHex(metaAddress);
+}
+
 export function parseStealthMetaAddress(metaHex: Hex): {
   viewPubKey: Uint8Array;
   spendPubKey: Uint8Array;

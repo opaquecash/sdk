@@ -31,6 +31,7 @@ export {
   type PsrTxResult,
   type CreateSchemaResult,
   type IssueAttestationResult,
+  type DummyAnnouncement,
   announcementToIndexerRow,
 } from "./client.js";
 
@@ -143,6 +144,7 @@ export {
 export {
   SETUP_MESSAGE,
   deriveKeysFromSignature,
+  generateRandomMetaAddress,
   computeStealthAddressAndViewTag,
   recomputeStealthSendFromEphemeralPrivateKey,
   ephemeralPrivateKeyToCompressedPublicKey,

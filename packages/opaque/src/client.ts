@@ -127,6 +127,7 @@ import {
   computeStealthAddressAndViewTag,
   recomputeStealthSendFromEphemeralPrivateKey,
   ephemeralPrivateKeyToCompressedPublicKey,
+  generateRandomMetaAddress,
 } from "./crypto/dksap.js";
 import {
   getChainDeployment as getChainDeploymentInfo,
@@ -359,15 +360,28 @@ export interface SendStealthPaymentParams {
   relay?: boolean;
   /** Solana Wormhole nonce (`batch_id`) when `relay` is set. */
   batchId?: number;
+  /**
+   * Anonymity-set utility (guide §17): decouple send time from announce time. When set,
+   * the value transfer is submitted immediately but the announcement is submitted only
+   * after this many milliseconds, breaking the timing correlation between the two.
+   * The result's `announcePromise` resolves to the announce tx id — await (or attach a
+   * handler to) it, or the delayed announce dies with your process.
+   */
+  delayAnnouncement?: number;
 }
 
 /** Result of {@link OpaqueClient.sendStealthPayment}. */
 export interface SendStealthPaymentResult {
   chain: OpaqueScanChain;
-  /** Transfer tx id (Solana bundles the announce in the same tx). */
+  /** Transfer tx id (Solana bundles the announce in the same tx unless delayed). */
   txHash: string;
   /** Separate announce tx id (Ethereum submits transfer + announce as two txs). */
   announceTxHash?: string;
+  /**
+   * Pending announce tx id when `delayAnnouncement` was set: resolves after the delay
+   * elapses and the announcement confirms. Undefined for immediate announcements.
+   */
+  announcePromise?: Promise<string>;
   /** EVM-style 20-byte scanner address the recipient will detect. */
   stealthAddress: Address;
   /** Solana destination account (base58) the funds were sent to. */
@@ -440,6 +454,13 @@ export interface PrepareStealthSendResult {
  * keyed to your own meta-address for receive-without-prior-announcement flows.
  */
 export type PrepareGhostReceiveResult = PrepareStealthSendResult;
+
+/**
+ * One decoy announcement from {@link OpaqueClient.generateDummyAnnouncements}: a valid
+ * DKSAP derivation against a throwaway meta-address (included for inspection; its
+ * private keys are already gone).
+ */
+export type DummyAnnouncement = PrepareStealthSendResult & { metaAddressHex: Hex };
 
 /**
  * Calldata-ready request for `StealthAddressAnnouncer.announce` (developer submits via wallet).
@@ -892,37 +913,65 @@ export class OpaqueClient {
       const wallet = this.requireSolanaWallet();
       const adapter = this.getSolanaAdapter();
       const destination = deriveStealthSolanaAddress(send.stealthPubKey);
-      const ixs: TransactionInstruction[] = [
-        SystemProgram.transfer({
-          fromPubkey: wallet.publicKey,
-          toPubkey: new PublicKey(destination),
-          lamports: params.amount,
-        }),
-      ];
-      const extraSigners: Keypair[] = [];
-      if (params.relay) {
-        const wormholeFee = await adapter.fetchWormholeMessageFee();
-        const { instruction, messageKeypair } = adapter.buildAnnounceWithRelay({
-          caller: wallet.publicKey,
-          stealthAddress: hexToBytes(send.stealthAddress),
-          ephemeralPubKey: send.ephemeralPublicKey,
-          metadata: send.metadata,
-          schemeId: send.schemeId,
-          batchId: params.batchId,
-          wormholeFee,
-        });
-        ixs.push(instruction);
-        extraSigners.push(messageKeypair);
-      } else if (wantAnnounce) {
-        ixs.push(
-          adapter.buildAnnounceInstruction({
+      const transferIx = SystemProgram.transfer({
+        fromPubkey: wallet.publicKey,
+        toPubkey: new PublicKey(destination),
+        lamports: params.amount,
+      });
+      const buildAnnounceIxs = async (): Promise<{
+        ixs: TransactionInstruction[];
+        signers: Keypair[];
+      }> => {
+        if (params.relay) {
+          const wormholeFee = await adapter.fetchWormholeMessageFee();
+          const { instruction, messageKeypair } = adapter.buildAnnounceWithRelay({
             caller: wallet.publicKey,
             stealthAddress: hexToBytes(send.stealthAddress),
             ephemeralPubKey: send.ephemeralPublicKey,
             metadata: send.metadata,
             schemeId: send.schemeId,
-          }),
-        );
+            batchId: params.batchId,
+            wormholeFee,
+          });
+          return { ixs: [instruction], signers: [messageKeypair] };
+        }
+        return {
+          ixs: [
+            adapter.buildAnnounceInstruction({
+              caller: wallet.publicKey,
+              stealthAddress: hexToBytes(send.stealthAddress),
+              ephemeralPubKey: send.ephemeralPublicKey,
+              metadata: send.metadata,
+              schemeId: send.schemeId,
+            }),
+          ],
+          signers: [],
+        };
+      };
+      const wantsAnyAnnounce = params.relay || wantAnnounce;
+      if (params.delayAnnouncement != null && wantsAnyAnnounce) {
+        const txHash = await this.sendSolanaTx([transferIx]);
+        const announcePromise = (async () => {
+          await sleep(params.delayAnnouncement!);
+          const { ixs, signers } = await buildAnnounceIxs();
+          return this.sendSolanaTx(ixs, signers);
+        })();
+        return {
+          chain: "solana",
+          txHash,
+          announcePromise,
+          stealthAddress: send.stealthAddress,
+          destination,
+          ephemeralPublicKey,
+          metaAddressHex,
+        };
+      }
+      const ixs: TransactionInstruction[] = [transferIx];
+      const extraSigners: Keypair[] = [];
+      if (wantsAnyAnnounce) {
+        const announce = await buildAnnounceIxs();
+        ixs.push(...announce.ixs);
+        extraSigners.push(...announce.signers);
       }
       const txHash = await this.sendSolanaTx(ixs, extraSigners);
       return {
@@ -948,24 +997,43 @@ export class OpaqueClient {
         to: send.stealthAddress,
         value: params.amount,
       });
-      let announceTxHash: string | undefined;
-      if (params.relay) {
-        const req = await this.buildAnnounceWithRelayRequest(send);
-        announceTxHash = await wc.sendTransaction({
-          account: this.config.ethereumAddress,
-          chain: viemChain,
-          to: req.to,
-          data: req.data,
-          value: req.value,
-        });
-      } else if (wantAnnounce) {
+      const submitAnnounce = async (): Promise<string> => {
+        if (params.relay) {
+          const req = await this.buildAnnounceWithRelayRequest(send);
+          return wc.sendTransaction({
+            account: this.config.ethereumAddress,
+            chain: viemChain,
+            to: req.to,
+            data: req.data,
+            value: req.value,
+          });
+        }
         const req = this.buildAnnounceTransactionRequest(send);
-        announceTxHash = await wc.sendTransaction({
+        return wc.sendTransaction({
           account: this.config.ethereumAddress,
           chain: viemChain,
           to: req.to,
           data: req.data,
         });
+      };
+      const wantsAnyAnnounce = params.relay || wantAnnounce;
+      if (params.delayAnnouncement != null && wantsAnyAnnounce) {
+        const announcePromise = (async () => {
+          await sleep(params.delayAnnouncement!);
+          return submitAnnounce();
+        })();
+        return {
+          chain: "ethereum",
+          txHash,
+          announcePromise,
+          stealthAddress: send.stealthAddress,
+          ephemeralPublicKey,
+          metaAddressHex,
+        };
+      }
+      let announceTxHash: string | undefined;
+      if (wantsAnyAnnounce) {
+        announceTxHash = await submitAnnounce();
       }
       return {
         chain: "ethereum",
@@ -991,6 +1059,35 @@ export class OpaqueClient {
   ): Promise<Hex> {
     const resolved = await this.resolveRecipient(recipient);
     return resolved.metaAddressHex;
+  }
+
+  /**
+   * Anonymity-set utility (guide §17): mint `n` decoy announcements. Each one is a fully
+   * valid DKSAP announcement to a freshly generated THROWAWAY meta-address whose private
+   * keys are discarded — on-chain it is indistinguishable from a real payment
+   * announcement (valid curve points, correctly derived view tag), but nobody will ever
+   * match or spend it. Submit them (e.g. via {@link buildDummyAnnouncementTransactions})
+   * interleaved with real sends to grow every recipient's anonymity set.
+   */
+  generateDummyAnnouncements(n: number): DummyAnnouncement[] {
+    if (!Number.isInteger(n) || n < 0) {
+      throw new Error("Opaque: generateDummyAnnouncements needs a non-negative integer count.");
+    }
+    return Array.from({ length: n }, () => {
+      const metaAddressHex = generateRandomMetaAddress();
+      return { ...this.prepareStealthSend(metaAddressHex), metaAddressHex };
+    });
+  }
+
+  /**
+   * Convenience over {@link generateDummyAnnouncements}: `n` ready-to-submit `announce`
+   * calldata requests for this chain's announcer. Broadcast them from any account —
+   * announcements carry no value and any caller may announce.
+   */
+  buildDummyAnnouncementTransactions(n: number): AnnounceTransactionRequest[] {
+    return this.generateDummyAnnouncements(n).map((d) =>
+      this.buildAnnounceTransactionRequest(d),
+    );
   }
 
   /**
@@ -2175,6 +2272,10 @@ function bytesToHex(b: Uint8Array): string {
   return Array.from(b)
     .map((x) => x.toString(16).padStart(2, "0"))
     .join("");
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
