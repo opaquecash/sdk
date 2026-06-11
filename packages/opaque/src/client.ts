@@ -152,6 +152,11 @@ import {
   type ResolvedRecipient,
   type ResolveTransports,
 } from "./resolve.js";
+import {
+  requestSetupSignature,
+  selectSigner,
+  type UnifiedSigner,
+} from "./signer.js";
 import type {
   IndexerAnnouncement,
   OwnedStealthOutput,
@@ -580,6 +585,57 @@ export class OpaqueClient {
         metaAddressHex,
       },
     );
+  }
+
+  /**
+   * Construct a client from wallet(s) in the {@link UnifiedSigner} shape — the
+   * one-adapter entry point for integrators (Phase 2.5). Pass at most one wallet per
+   * chain; the FIRST wallet is prompted for the {@link SETUP_MESSAGE} setup signature
+   * (HKDF entropy) unless a cached `walletSignature` is supplied. Each wallet is also
+   * wired as that chain's write signer (`ethereumProvider`/`ethereumWalletClient`,
+   * `solanaWallet`), so PSR writes and sends work without further config.
+   */
+  static async fromWallet(
+    params: Omit<
+      OpaqueClientConfig,
+      | "walletSignature"
+      | "ethereumAddress"
+      | "ethereumProvider"
+      | "ethereumWalletClient"
+      | "solanaWallet"
+    > & {
+      /** One wallet (or one per chain) in unified shape. */
+      wallets: UnifiedSigner | UnifiedSigner[];
+      /** Cached setup signature; skips the wallet prompt when present. */
+      walletSignature?: Hex;
+    },
+  ): Promise<OpaqueClient> {
+    const { wallets, walletSignature, ...rest } = params;
+    const list = Array.isArray(wallets) ? wallets : [wallets];
+    if (list.length === 0 && !walletSignature) {
+      throw new Error(
+        "Opaque: fromWallet needs at least one wallet (or a cached walletSignature).",
+      );
+    }
+    const evm = selectSigner(list, "ethereum");
+    const solana = selectSigner(list, "solana");
+    const signature = walletSignature ?? (await requestSetupSignature(list[0]));
+    return OpaqueClient.create({
+      ...rest,
+      walletSignature: signature,
+      // Zero address keeps reads working for Solana-only sessions; never used for writes.
+      ethereumAddress:
+        evm?.address ?? ("0x0000000000000000000000000000000000000000" as Address),
+      ethereumProvider: evm?.provider,
+      ethereumWalletClient: evm?.walletClient,
+      solanaWallet:
+        solana?.signTransaction != null
+          ? {
+              publicKey: solana.publicKey,
+              signTransaction: solana.signTransaction,
+            }
+          : undefined,
+    });
   }
 
   /** Chain id from configuration. */

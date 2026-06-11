@@ -116,6 +116,15 @@ export {
   indexerAnnouncementsToScannerJson,
 } from "./indexer/normalize.js";
 
+// Unified signer abstraction (one adapter shape over EIP-1193 + wallet-adapter).
+export {
+  requestSetupSignature,
+  selectSigner,
+  type UnifiedSigner,
+  type EvmUnifiedSigner,
+  type SolanaUnifiedSigner,
+} from "./signer.js";
+
 // Identity resolution beyond the on-chain registries (CSAP §2.9).
 export {
   OPAQUE_META_RECORD_KEY,
