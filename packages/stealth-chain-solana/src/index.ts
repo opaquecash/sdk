@@ -88,12 +88,24 @@ export {
 
 export {
   ONS_MIRROR_RECORD_SEED,
+  ONS_CLAIM_SEED,
+  ONS_PENDING_WINDOW_SECS,
   ONS_RECORD_DISCRIMINATOR,
+  ONS_CLAIM_DISCRIMINATOR,
   type OnsMirrorRecord,
+  type OnsProvisionalClaim,
+  type OnsClaimInstructionParams,
+  type OnsClaimState,
+  type OnsClaimStatus,
   onsNameHash,
   getOnsMirrorRecordPda,
+  getOnsClaimPda,
   decodeOnsMirrorRecord,
+  decodeOnsProvisionalClaim,
   fetchOnsMirrorRecord,
+  fetchOnsClaimStatus,
+  buildOnsClaimInstruction,
+  buildOnsReconcileInstruction,
 } from "./ons.js";
 
 export { snsDomainName, fetchSnsTxtRecord } from "./sns.js";

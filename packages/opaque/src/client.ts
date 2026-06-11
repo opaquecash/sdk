@@ -41,8 +41,28 @@ import {
   deriveStealthSolanaAddressFromStealthPrivKey,
   fetchOnsMirrorRecord,
   fetchSnsTxtRecord,
+  fetchOnsClaimStatus,
+  fetchWormholeMessageFee,
+  buildOnsClaimInstruction,
+  buildOnsReconcileInstruction,
+  type OnsClaimStatus,
 } from "@opaquecash/stealth-chain-solana";
 import { getOnsDeployment } from "@opaquecash/deployments";
+
+/** Minimal write/read surface of the canonical OpaqueNameRegistry (spec/ONS.md §2). */
+const onsNameRegistryAbi = [
+  {
+    type: "function",
+    name: "register",
+    stateMutability: "payable",
+    inputs: [
+      { name: "label", type: "string" },
+      { name: "spendPubKey", type: "bytes" },
+      { name: "viewPubKey", type: "bytes" },
+    ],
+    outputs: [{ name: "node", type: "bytes32" }],
+  },
+] as const;
 import type { Announcement, ChainAdapter } from "@opaquecash/adapter";
 import {
   checkAnnouncement,
@@ -987,6 +1007,136 @@ export class OpaqueClient {
       return this.getSolanaAdapter().isRegistered(wallet.publicKey.toBase58());
     }
     throw new Error(`Opaque: unsupported register chain "${chain as string}"`);
+  }
+
+  // ------------------------------------------------------------------ ONS names
+
+  /**
+   * Register `label`.<parent> for THIS wallet's meta-address on the canonical
+   * OpaqueNameRegistry (Ethereum; spec/ONS.md §4.1). Immediately authoritative;
+   * the Solana mirror follows after Wormhole relay. Submits with the configured
+   * Ethereum signer and returns the tx hash.
+   */
+  async registerOpaqueName(label: string): Promise<Hex> {
+    const registry = this.requireOnsRegistry();
+    const { spendPubKey, viewPubKey } = this.ownMetaAddressHalves();
+    const wc = this.evmWalletClient();
+    return wc.writeContract({
+      address: registry,
+      abi: onsNameRegistryAbi,
+      functionName: "register",
+      args: [label.toLowerCase(), spendPubKey, viewPubKey],
+      account: this.config.ethereumAddress,
+      chain: wc.chain ?? this.viemChain(),
+    });
+  }
+
+  /**
+   * Claim `label`.<parent> from Solana (spec/ONS.md §4.2). Creates a PROVISIONAL
+   * claim and publishes it to the canonical registry via Wormhole; it becomes
+   * authoritative only when the registry confirms (mirror record appears), and it
+   * loses to any concurrent direct Ethereum registration. Track with
+   * {@link getOpaqueNameStatus}; surface `pending` in UI (never as owned).
+   */
+  async claimOpaqueName(label: string): Promise<{ signature: string; name: string }> {
+    const parentName = this.requireOnsParentName();
+    const adapter = this.getSolanaAdapter();
+    const wallet = this.requireSolanaWallet();
+    const { spendPubKey, viewPubKey } = this.ownMetaAddressHalves();
+    const message = Keypair.generate();
+    const fee = await fetchWormholeMessageFee(
+      adapter.connection,
+      adapter.deployment.wormholeCore,
+    );
+    const ix = buildOnsClaimInstruction({
+      registrationProgramId: this.onsRegistrationProgram(),
+      wormholeCore: adapter.deployment.wormholeCore,
+      claimer: wallet.publicKey,
+      label,
+      parentName,
+      spendPubKey: hexToBytes(spendPubKey),
+      viewPubKey: hexToBytes(viewPubKey),
+      wormholeMessage: message.publicKey,
+      wormholeFee: fee,
+    });
+    const signature = await this.sendSolanaTx([ix], [message]);
+    return { signature, name: `${label.toLowerCase()}.${parentName}` };
+  }
+
+  /**
+   * Reconciliation state of an ONS name's Solana-originated claim
+   * (`none`/`pending`/`confirmed`/`lost`/`expired`; spec/ONS.md §6), plus the
+   * mirror record when one exists. Two Solana account reads.
+   */
+  async getOpaqueNameStatus(name: string): Promise<OnsClaimStatus> {
+    const adapter = this.getSolanaAdapter();
+    return fetchOnsClaimStatus(
+      adapter.connection,
+      this.onsRegistrationProgram(),
+      this.onsMirrorProgram(),
+      name.trim().toLowerCase(),
+    );
+  }
+
+  /**
+   * Close a finished provisional claim (confirmed / lost / expired) and refund its
+   * rent to the claimer. Permissionless; submits with the configured Solana wallet.
+   */
+  async reconcileOpaqueName(name: string): Promise<string> {
+    const status = await this.getOpaqueNameStatus(name);
+    if (!status.claim) throw new Error(`Opaque: no provisional claim for ${name}.`);
+    const wallet = this.requireSolanaWallet();
+    const ix = buildOnsReconcileInstruction({
+      registrationProgramId: this.onsRegistrationProgram(),
+      mirrorProgramId: this.onsMirrorProgram(),
+      fullName: name.trim().toLowerCase(),
+      claimer: status.claim.claimer,
+      payer: wallet.publicKey,
+    });
+    return this.sendSolanaTx([ix]);
+  }
+
+  /** The ONS parent name in force, or throw with setup guidance. */
+  private requireOnsParentName(): string {
+    const parent = this.onsParentName();
+    if (!parent) {
+      throw new Error(
+        `Opaque: no ONS deployment is known for chainId ${this.config.chainId} ` +
+          "(pass config.ons.parentName).",
+      );
+    }
+    return parent;
+  }
+
+  private requireOnsRegistry(): Address {
+    const registry =
+      this.config.ons?.registry ?? getOnsDeployment(this.config.chainId)?.registry;
+    if (!registry) {
+      throw new Error(
+        `Opaque: no OpaqueNameRegistry is known for chainId ${this.config.chainId} ` +
+          "(pass config.ons.registry).",
+      );
+    }
+    return registry;
+  }
+
+  private onsMirrorProgram(): PublicKey {
+    return this.config.ons?.mirrorProgram
+      ? new PublicKey(this.config.ons.mirrorProgram)
+      : this.getSolanaAdapter().deployment.onsMirror;
+  }
+
+  private onsRegistrationProgram(): PublicKey {
+    return this.getSolanaAdapter().deployment.onsRegistration;
+  }
+
+  /** Split this wallet's meta-address (CSAP V‖S) into its 33-byte halves. */
+  private ownMetaAddressHalves(): { spendPubKey: Hex; viewPubKey: Hex } {
+    const hex = this.metaAddressHex.slice(2);
+    return {
+      viewPubKey: `0x${hex.slice(0, 66)}` as Hex,
+      spendPubKey: `0x${hex.slice(66, 132)}` as Hex,
+    };
   }
 
   /**

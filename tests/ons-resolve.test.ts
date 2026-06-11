@@ -16,12 +16,17 @@ import {
 } from "@opaquecash/opaque";
 import {
   decodeOnsMirrorRecord,
+  fetchOnsClaimStatus,
+  getOnsClaimPda,
   getOnsMirrorRecordPda,
   onsNameHash,
 } from "@opaquecash/stealth-chain-solana";
 import { ONS_DEPLOYMENTS, requireSolanaProgramIds } from "@opaquecash/deployments";
 
 const MIRROR_PROGRAM = new PublicKey(requireSolanaProgramIds("devnet").onsMirror);
+const REGISTRATION_PROGRAM = new PublicKey(
+  requireSolanaProgramIds("devnet").onsRegistration,
+);
 const PARENT = ONS_DEPLOYMENTS[11155111]!.parentName; // "opqtest.eth"
 
 function bytesToHex(b: Uint8Array): string {
@@ -159,6 +164,88 @@ describe("resolveRecipient — ONS names", () => {
     const res = await client.resolveRecipient("vitalik.eth");
     expect(res.source).toBe("ens-text");
     expect(getText).toHaveBeenCalledWith("vitalik.eth", "com.opaque.meta");
+  });
+});
+
+describe("fetchOnsClaimStatus (spec/ONS.md §6 states)", () => {
+  const CLAIMER = new PublicKey(new Uint8Array(32).fill(9));
+
+  function claimData(createdAt: number): Uint8Array {
+    const data = new Uint8Array(8 + 73);
+    data.set(
+      createHash("sha256").update("account:ProvisionalClaim").digest().subarray(0, 8),
+      0,
+    );
+    data.set(CLAIMER.toBytes(), 8);
+    data.set(onsNameHash(`bob.${PARENT}`), 40);
+    new DataView(data.buffer).setBigInt64(72, BigInt(createdAt), true);
+    return data;
+  }
+
+  function statusWith(accounts: Map<string, { data: Uint8Array; owner: PublicKey }>) {
+    const connection = {
+      getAccountInfo: async (pda: PublicKey) => {
+        const hit = accounts.get(pda.toBase58());
+        return hit ? { data: Buffer.from(hit.data), owner: hit.owner } : null;
+      },
+    };
+    return fetchOnsClaimStatus(
+      connection as never,
+      REGISTRATION_PROGRAM,
+      MIRROR_PROGRAM,
+      `bob.${PARENT}`,
+    );
+  }
+
+  const claimPda = getOnsClaimPda(REGISTRATION_PROGRAM, `bob.${PARENT}`).toBase58();
+  const recordPda = getOnsMirrorRecordPda(MIRROR_PROGRAM, `bob.${PARENT}`).toBase58();
+  const now = Math.floor(Date.now() / 1000);
+
+  it("none / pending / expired without a mirror record", async () => {
+    expect((await statusWith(new Map())).state).toBe("none");
+
+    const pending = await statusWith(
+      new Map([[claimPda, { data: claimData(now - 60), owner: REGISTRATION_PROGRAM }]]),
+    );
+    expect(pending.state).toBe("pending");
+
+    const expired = await statusWith(
+      new Map([[claimPda, { data: claimData(now - 25 * 3600), owner: REGISTRATION_PROGRAM }]]),
+    );
+    expect(expired.state).toBe("expired");
+  });
+
+  it("confirmed when the mirror authority is the claimer, lost otherwise", async () => {
+    const confirmed = await statusWith(
+      new Map([
+        [claimPda, { data: claimData(now - 60), owner: REGISTRATION_PROGRAM }],
+        [
+          recordPda,
+          {
+            data: onsRecordData({ name: `bob.${PARENT}`, solAuthority: CLAIMER.toBytes() }),
+            owner: MIRROR_PROGRAM,
+          },
+        ],
+      ]),
+    );
+    expect(confirmed.state).toBe("confirmed");
+
+    const lost = await statusWith(
+      new Map([
+        [claimPda, { data: claimData(now - 60), owner: REGISTRATION_PROGRAM }],
+        [
+          recordPda,
+          {
+            data: onsRecordData({
+              name: `bob.${PARENT}`,
+              solAuthority: new Uint8Array(32).fill(7),
+            }),
+            owner: MIRROR_PROGRAM,
+          },
+        ],
+      ]),
+    );
+    expect(lost.state).toBe("lost");
   });
 });
 
