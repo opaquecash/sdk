@@ -6,18 +6,28 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run -w @opaquecash/deployments build && npm run -w @opaquecash/adapter build && npm run -w @opaquecash/stealth-core build && npm run -w @opaquecash/stealth-wasm build && npm run -w @opaquecash/psr-core build && npm run -w @opaquecash/stealth-chain build && npm run -w @opaquecash/stealth-chain-solana build && npm run -w @opaquecash/psr-chain-solana build && npm run -w @opaquecash/stealth-balance build && npm run -w @opaquecash/uab build && npm run -w @opaquecash/psr-prover build && npm run -w @opaquecash/psr-chain build && npm run -w @opaquecash/opaque build",
+    "build": "npm run -w @opaquecash/deployments build && npm run -w @opaquecash/adapter build && npm run -w @opaquecash/stealth-core build && npm run -w @opaquecash/stealth-wasm build && npm run -w @opaquecash/psr-core build && npm run -w @opaquecash/stealth-chain build && npm run -w @opaquecash/stealth-chain-solana build && npm run -w @opaquecash/psr-chain-solana build && npm run -w @opaquecash/stealth-balance build && npm run -w @opaquecash/uab build && npm run -w @opaquecash/psr-prover build && npm run -w @opaquecash/psr-chain build && npm run -w @opaquecash/opaque build && npm run -w @opaquecash/react build",
     "clean": "npm run clean --workspaces --if-present",
     "pretest": "npm run build",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "docs:api": "typedoc",
+    "test:coverage": "vitest run --coverage"
   },
   "engines": {
     "node": ">=18"
   },
   "devDependencies": {
+    "@testing-library/react": "^16.3.2",
+    "@types/node": "^22.9.0",
+    "@types/react": "^18.3.31",
+    "@vitest/coverage-v8": "^2.1.9",
+    "jsdom": "^25.0.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "typedoc": "^0.28.19",
+    "typedoc-plugin-markdown": "^4.12.0",
     "typescript": "~5.6.3",
-    "vitest": "^2.1.8",
-    "@types/node": "^22.9.0"
+    "vitest": "^2.1.8"
   }
 }

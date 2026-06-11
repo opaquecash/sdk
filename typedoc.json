@@ -1,0 +1,14 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "plugin": ["typedoc-plugin-markdown"],
+  "entryPointStrategy": "packages",
+  "entryPoints": ["packages/opaque", "packages/react"],
+  "out": "../docs/sdk/api",
+  "name": "Opaque SDK API reference",
+  "readme": "none",
+  "excludePrivate": true,
+  "excludeInternal": true,
+  "includeVersion": true,
+  "hidePageHeader": true,
+  "hideBreadcrumbs": true
+}

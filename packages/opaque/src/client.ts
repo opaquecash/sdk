@@ -1286,17 +1286,23 @@ export class OpaqueClient {
             : Number(vtRaw);
       if (!Number.isFinite(vt) || !Number.isInteger(vt) || vt < 0 || vt > 255) continue;
 
-      const tagResult = checkAnnouncementViewTag(this.wasm, vt, this.viewingKey, eph);
-      if (tagResult === "NoMatch") continue;
-
-      const ok = checkAnnouncement(
-        this.wasm,
-        row.stealthAddress,
-        vt,
-        this.viewingKey,
-        this.spendPubKey,
-        eph,
-      );
+      // Anyone can announce; skip rows whose ephemeral key is 33 bytes but not a valid
+      // curve point (the WASM throws "Invalid public key" on them) instead of aborting.
+      let ok = false;
+      try {
+        const tagResult = checkAnnouncementViewTag(this.wasm, vt, this.viewingKey, eph);
+        if (tagResult === "NoMatch") continue;
+        ok = checkAnnouncement(
+          this.wasm,
+          row.stealthAddress,
+          vt,
+          this.viewingKey,
+          this.spendPubKey,
+          eph,
+        );
+      } catch {
+        continue;
+      }
       if (!ok) continue;
 
       owned.push({
