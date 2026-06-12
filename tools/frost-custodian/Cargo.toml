@@ -2,8 +2,13 @@
 name = "frost-custodian"
 version = "0.1.0"
 edition = "2021"
-description = "Custodian CLI for Opaque conditional disclosure: FROST(secp256k1, Taproot) DKG + 2-round threshold signing of disclosure contexts (spec/conditional-disclosure.md §5)"
+description = "Custodian CLI for Opaque conditional disclosure: FROST(secp256k1, Taproot) DKG and 2-round threshold signing of disclosure contexts, producing BIP-340 signatures for on-chain verification"
 license = "GPL-3.0"
+repository = "https://github.com/opaquecash/sdk"
+homepage = "https://opaque.cash"
+readme = "README.md"
+keywords = ["frost", "threshold-signature", "schnorr", "bip340", "privacy"]
+categories = ["cryptography::cryptocurrencies", "command-line-utilities"]
 
 [dependencies]
 frost-secp256k1-tr = "3.0.0"
