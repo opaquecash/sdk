@@ -28,6 +28,10 @@ export interface EvmContracts {
   uabReceiver: EvmAddress;
   /** Relayer market: combined stake registry + job escrow (spec/relayer-market.md). */
   relayerRegistry: EvmAddress;
+  /** Privacy pool: amount privacy + association-set compliance (spec/privacy-pool.md). */
+  opaquePrivacyPool: EvmAddress;
+  /** Groth16 verifier for the privacy-pool withdrawal circuit. */
+  withdrawalVerifier: EvmAddress;
   /** Wormhole Core Bridge (external well-known contract). */
   wormholeCore: EvmAddress;
 }

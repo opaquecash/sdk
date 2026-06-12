@@ -17,6 +17,8 @@ export const EVM_DEPLOYMENTS: Record<number, EvmDeployment> = {
       uabSender: "0x872787c0BD1A0C71e6D1be5a144EB044e0CB2069",
       uabReceiver: "0x9eF189f7a263F870Cf80f9A89d1349A6AF7b15cF",
       relayerRegistry: "0x5fA252e2D22058a4ec3420573a3B3A5dca025837",
+      opaquePrivacyPool: "0x49a5bB6d079a43d50596069b4F2632005CFe729E",
+      withdrawalVerifier: "0xa1add9daa1F4D0f9190c13fb9AD52e525f4726b5",
       wormholeCore: "0x4a8bc80Ed5a4067f1CCf107057b8270E0cC11A78",
     },
     wormhole: { chainId: 2, sourceChainId: 1 },
