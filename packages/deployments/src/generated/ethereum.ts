@@ -16,6 +16,7 @@ export const EVM_DEPLOYMENTS: Record<number, EvmDeployment> = {
       groth16VerifierV2: "0x49A212bdbc52F1cb6C93623FC7814a61Fc71ddB5",
       uabSender: "0x872787c0BD1A0C71e6D1be5a144EB044e0CB2069",
       uabReceiver: "0x9eF189f7a263F870Cf80f9A89d1349A6AF7b15cF",
+      relayerRegistry: "0x5fA252e2D22058a4ec3420573a3B3A5dca025837",
       wormholeCore: "0x4a8bc80Ed5a4067f1CCf107057b8270E0cC11A78",
     },
     wormhole: { chainId: 2, sourceChainId: 1 },

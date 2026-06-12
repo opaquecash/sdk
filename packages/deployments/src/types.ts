@@ -26,6 +26,8 @@ export interface EvmContracts {
   groth16VerifierV2: EvmAddress;
   uabSender: EvmAddress;
   uabReceiver: EvmAddress;
+  /** Relayer market: combined stake registry + job escrow (spec/relayer-market.md). */
+  relayerRegistry: EvmAddress;
   /** Wormhole Core Bridge (external well-known contract). */
   wormholeCore: EvmAddress;
 }
@@ -59,6 +61,8 @@ export interface SolanaProgramIds {
   onsMirror: string;
   /** ONS Solana-originated claims (spec/ONS.md §4.2). */
   onsRegistration: string;
+  /** Relayer market: stake registry + job escrow (spec/relayer-market.md). */
+  relayerRegistry: string;
   /** Wormhole Core Bridge program (external well-known program). */
   wormholeCore: string;
 }
