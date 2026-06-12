@@ -16,6 +16,7 @@ export const SOLANA_PROGRAM_IDS: Record<string, SolanaProgramIds> = {
     onsMirror: "D7EXuwcsGrUAYC6k69jrKvsKethsKYgR1pokkTcFvWsk",
     onsRegistration: "5gfK9J8FJi3FpsQD33Hkrfwq8KqN4yadB2PDF9REnwMT",
     relayerRegistry: "E4xmYaAU31dbNTbhfMfp2F24b48DAxJigvZTVbsKJREg",
+    opaquePrivacyPool: "5NjweHM4z7NrG4NLVUyJ8rtX8jLM3xtBWAR1wSJZ7vjY",
     wormholeCore: "3u8hJUVTA4jH1wYAyUur7FFZVQ8H635K3tSHHF4ssjQ5",
   },
 };

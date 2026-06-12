@@ -67,6 +67,8 @@ export interface SolanaProgramIds {
   onsRegistration: string;
   /** Relayer market: stake registry + job escrow (spec/relayer-market.md). */
   relayerRegistry: string;
+  /** Privacy pool: amount privacy + association-set compliance (spec/privacy-pool.md). */
+  opaquePrivacyPool: string;
   /** Wormhole Core Bridge program (external well-known program). */
   wormholeCore: string;
 }
