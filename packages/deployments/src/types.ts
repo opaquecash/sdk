@@ -32,6 +32,10 @@ export interface EvmContracts {
   opaquePrivacyPool: EvmAddress;
   /** Groth16 verifier for the privacy-pool withdrawal circuit. */
   withdrawalVerifier: EvmAddress;
+  /** Conditional disclosure: policies + quorum-gated disclosure (spec/conditional-disclosure.md). */
+  opaqueDisclosureRegistry: EvmAddress;
+  /** Groth16 verifier for the conditional_disclosure circuit. */
+  disclosureVerifier: EvmAddress;
   /** Wormhole Core Bridge (external well-known contract). */
   wormholeCore: EvmAddress;
 }
@@ -69,6 +73,8 @@ export interface SolanaProgramIds {
   relayerRegistry: string;
   /** Privacy pool: amount privacy + association-set compliance (spec/privacy-pool.md). */
   opaquePrivacyPool: string;
+  /** Conditional disclosure: policies + quorum-gated disclosure (spec/conditional-disclosure.md). */
+  conditionalDisclosure: string;
   /** Wormhole Core Bridge program (external well-known program). */
   wormholeCore: string;
 }

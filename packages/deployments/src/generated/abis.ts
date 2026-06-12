@@ -2605,3 +2605,407 @@ export const relayerRegistryAbi = [
     "type": "function"
   }
 ] as const;
+
+/** ABI of `OpaqueDisclosureRegistry` (from hardhat artifacts). */
+export const opaqueDisclosureRegistryAbi = [
+  {
+    "inputs": [
+      {
+        "internalType": "contract IDisclosureProofVerifier",
+        "name": "_verifier",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "constructor"
+  },
+  {
+    "inputs": [],
+    "name": "ContextMismatch",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "InvalidGroupKey",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "InvalidProof",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "InvalidQuorumSignature",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "NullifierAlreadyConsumed",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "PolicyDoesNotExist",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "ThresholdMismatch",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "UnknownStateRoot",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "ZeroAddress",
+    "type": "error"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "policyId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "caseId",
+        "type": "bytes32"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "requester",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "label",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "value",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "bytes32",
+        "name": "disclosureNullifier",
+        "type": "bytes32"
+      }
+    ],
+    "name": "Disclosure",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "policyId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "pool",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "groupKeyX",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint128",
+        "name": "threshold",
+        "type": "uint128"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint8",
+        "name": "m",
+        "type": "uint8"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint8",
+        "name": "n",
+        "type": "uint8"
+      }
+    ],
+    "name": "PolicyRegistered",
+    "type": "event"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "policyId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "caseId",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "address",
+        "name": "requester",
+        "type": "address"
+      }
+    ],
+    "name": "context",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "pure",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256[2]",
+        "name": "a",
+        "type": "uint256[2]"
+      },
+      {
+        "internalType": "uint256[2][2]",
+        "name": "b",
+        "type": "uint256[2][2]"
+      },
+      {
+        "internalType": "uint256[2]",
+        "name": "c",
+        "type": "uint256[2]"
+      },
+      {
+        "internalType": "uint256[6]",
+        "name": "signals",
+        "type": "uint256[6]"
+      },
+      {
+        "internalType": "uint256",
+        "name": "policyId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "caseId",
+        "type": "bytes32"
+      },
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "rx",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "ry",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "s",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct OpaqueDisclosureRegistry.SchnorrSig",
+        "name": "sig",
+        "type": "tuple"
+      }
+    ],
+    "name": "disclose",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "name": "nullifierConsumed",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "policies",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "pool",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "groupKeyX",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint128",
+        "name": "threshold",
+        "type": "uint128"
+      },
+      {
+        "internalType": "uint8",
+        "name": "m",
+        "type": "uint8"
+      },
+      {
+        "internalType": "uint8",
+        "name": "n",
+        "type": "uint8"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "policyCount",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "pool",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "groupKeyX",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint128",
+        "name": "threshold",
+        "type": "uint128"
+      },
+      {
+        "internalType": "uint8",
+        "name": "m",
+        "type": "uint8"
+      },
+      {
+        "internalType": "uint8",
+        "name": "n",
+        "type": "uint8"
+      }
+    ],
+    "name": "registerPolicy",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "policyId",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "verifier",
+    "outputs": [
+      {
+        "internalType": "contract IDisclosureProofVerifier",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "px",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "m",
+        "type": "bytes32"
+      },
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "rx",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "ry",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "s",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct OpaqueDisclosureRegistry.SchnorrSig",
+        "name": "sig",
+        "type": "tuple"
+      }
+    ],
+    "name": "verifySchnorr",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  }
+] as const;
