@@ -4,6 +4,7 @@
   "entryPointStrategy": "packages",
   "entryPoints": ["packages/opaque", "packages/react"],
   "out": "../docs/sdk/api",
+  "publicPath": "/sdk/api",
   "name": "Opaque SDK API reference",
   "readme": "none",
   "excludePrivate": true,
