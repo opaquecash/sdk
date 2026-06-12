@@ -43,7 +43,7 @@ export function encodeOptionPubkey(pk: PublicKey | null): Buffer {
   return Buffer.concat([Buffer.from([1]), pk.toBuffer()]);
 }
 
-export function encodeU64(n: number | bigint): Buffer {
+export function encodeU64(n: number | bigint | string): Buffer {
   const buf = Buffer.alloc(8);
   buf.writeBigUInt64LE(BigInt(n));
   return buf;

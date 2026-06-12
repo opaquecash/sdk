@@ -71,7 +71,13 @@ export {
   DEFAULT_REPUTATION_ARTIFACT_PATHS,
   DEFAULT_REPUTATION_ARTIFACTS_ORIGIN,
 } from "@opaquecash/psr-prover";
-export type { ProofData, DiscoveredTrait } from "@opaquecash/psr-core";
+export type {
+  AttestationIdentifier,
+  ProofData,
+  DiscoveredTrait,
+  V2Attestation,
+  V2MerkleLeafPreimage,
+} from "@opaquecash/psr-core";
 export { buildActionScope, externalNullifierFromScope } from "@opaquecash/psr-core";
 
 // PSR V2 schema + attestation codecs (chain-neutral).

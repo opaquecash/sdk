@@ -47,7 +47,7 @@ export interface CircuitWitness {
  */
 export interface BuildWitnessV2Params {
   /** Numeric trait/schema id — becomes both `schema_id` and the public `attestation_id`. */
-  attestationId: number | bigint;
+  attestationId: number | bigint | string;
   /** 32-byte reconstructed one-time stealth private key. */
   stealthPrivKeyBytes: Uint8Array;
   /** External nullifier as a decimal string (action scope). */

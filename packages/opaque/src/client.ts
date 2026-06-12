@@ -71,6 +71,7 @@ import {
   initStealthWasm,
   reconstructSigningKey,
   scanAttestationsJson,
+  scanAttestationsV2Json,
   type StealthWasmModule,
 } from "@opaquecash/stealth-wasm";
 import {
@@ -82,10 +83,12 @@ import {
   fieldDefsToString,
   parseFieldDefs,
   randomNonce,
+  v2AttestationsToDiscoveredTraits,
   type AttestationV2,
   type FieldDef,
   type ProofData,
   type SchemaV2,
+  type V2Attestation,
 } from "@opaquecash/psr-core";
 import type { DiscoveredTrait } from "@opaquecash/psr-core";
 import {
@@ -96,10 +99,12 @@ import {
   submitVerifyReputation,
   verifyReputationView,
   requirePsrV2Config,
+  fetchAllSchemas as evmFetchAllSchemas,
   fetchSchema as evmFetchSchema,
   fetchSchemasForWallet as evmFetchSchemasForWallet,
   fetchAttestationsIssuedBy as evmFetchAttestationsIssuedBy,
   isAuthorizedIssuer as evmIsAuthorizedIssuer,
+  getCurrentBlock as evmGetCurrentBlock,
   registerSchema as evmRegisterSchema,
   addDelegate as evmAddDelegate,
   removeDelegate as evmRemoveDelegate,
@@ -312,6 +317,18 @@ export interface OpaqueClientConfig {
 
 /** Chains the PSR admin API ({@link OpaqueClient.createSchema} etc.) targets. */
 export type PsrChain = OpaqueScanChain;
+
+/** Options for V2 schema-bound trait discovery. */
+export interface DiscoverTraitsV2Options {
+  /** Chain whose native PSR schema registry should authorize announcements. */
+  chain: PsrChain;
+  /** Optional pre-fetched registry snapshot. If omitted, the client fetches all schemas. */
+  schemas?: SchemaV2[];
+  /** Current block/slot for schema expiry checks. If omitted, it is read from the chain. */
+  currentSlot?: number | bigint;
+  /** Optional allowlist of trusted issuer identities (hex or address/base58). */
+  trustedIssuers?: string[];
+}
 
 /** Future block (Ethereum) / slot (Solana) for a schema or attestation expiry. */
 export interface PsrExpiryInput {
@@ -1894,6 +1911,42 @@ export class OpaqueClient {
   }
 
   /**
+   * PSR V2: map owned schema-bound attestation announcements to {@link DiscoveredTrait}.
+   *
+   * V2 announcements use marker `0xB2` and must be validated against the native chain's schema
+   * registry snapshot before they are returned. Use this for attestations created by
+   * {@link issueAttestation}; keep {@link discoverTraits} for legacy V1 `0xA7` announcements.
+   */
+  async discoverTraitsV2(
+    rows: IndexerAnnouncement[],
+    options: DiscoverTraitsV2Options,
+  ): Promise<DiscoveredTrait[]> {
+    if (rows.length === 0) return [];
+    const schemas = options.schemas ?? await this.fetchAllPsrSchemas(options.chain);
+    if (schemas.length === 0) return [];
+    const currentSlot =
+      options.currentSlot ?? await this.getCurrentPsrSlot(options.chain);
+    const json = indexerAnnouncementsToScannerJson(rows);
+    const schemasJson = JSON.stringify(
+      schemas.map((schema) => schemaToScannerSchemaInfo(schema, options.chain)),
+    );
+    const trusted = options.trustedIssuers?.length
+      ? JSON.stringify(options.trustedIssuers.map((i) => normalizeScannerIssuer(i, options.chain)))
+      : "";
+    const out = scanAttestationsV2Json(
+      this.wasm,
+      json,
+      schemasJson,
+      this.viewingKey,
+      this.spendPubKey,
+      currentSlot,
+      trusted,
+    );
+    const list = JSON.parse(out) as V2Attestation[];
+    return v2AttestationsToDiscoveredTraits(list);
+  }
+
+  /**
    * PSR: same as {@link discoverTraits} — alias for reputation-focused call sites.
    */
   async getReputationTraitsFromAnnouncements(
@@ -2007,6 +2060,29 @@ export class OpaqueClient {
             schema.delegates.some((d) => d.toBase58() === me),
         )
         .map(({ address, schema }) => solanaSchemaToV2(address, schema));
+    }
+    throw unsupportedPsrChain(chain);
+  }
+
+  /** All schemas on the selected chain, used by V2 trait discovery authorization. */
+  private async fetchAllPsrSchemas(chain: PsrChain): Promise<SchemaV2[]> {
+    if (chain === "ethereum") {
+      const cfg = requirePsrV2Config(this.config.chainId);
+      return evmFetchAllSchemas(this.publicClient, cfg);
+    }
+    if (chain === "solana") {
+      const programs = this.getSolanaAdapter().deployment;
+      const all = await solanaFetchAllSchemas(this.getSolanaAdapter().connection, programs.schemaRegistry);
+      return all.map(({ address, schema }) => solanaSchemaToV2(address, schema));
+    }
+    throw unsupportedPsrChain(chain);
+  }
+
+  /** Current Ethereum block or Solana slot for V2 schema expiry checks. */
+  private async getCurrentPsrSlot(chain: PsrChain): Promise<number> {
+    if (chain === "ethereum") return evmGetCurrentBlock(this.publicClient);
+    if (chain === "solana") {
+      return this.getSolanaAdapter().connection.getSlot("confirmed");
     }
     throw unsupportedPsrChain(chain);
   }
@@ -2409,9 +2485,9 @@ export class OpaqueClient {
       trait: params.trait,
       stealthPrivKeyBytes: params.stealthPrivKeyBytes,
       externalNullifier: params.externalNullifier,
-      issuerPkX: params.issuerPkX,
-      traitDataHash: params.traitDataHash,
-      nonce: params.nonce,
+      issuerPkX: params.issuerPkX ?? params.trait.merkleLeafPreimage?.issuerPkX,
+      traitDataHash: params.traitDataHash ?? params.trait.merkleLeafPreimage?.traitDataHash,
+      nonce: params.nonce ?? params.trait.merkleLeafPreimage?.nonceField,
       artifacts: params.artifacts,
       onProgress: params.onProgress,
     });
@@ -2588,6 +2664,48 @@ function bytesToHex0x(b: Uint8Array): Hex {
 
 function unsupportedPsrChain(chain: string): Error {
   return new Error(`Opaque PSR: unsupported chain "${chain}".`);
+}
+
+interface ScannerSchemaInfo {
+  schema_id: number[];
+  authority: number[];
+  delegates: number[][];
+  deprecated: boolean;
+  schema_expiry_slot: number;
+  name: string;
+}
+
+function schemaToScannerSchemaInfo(
+  schema: SchemaV2,
+  chain: PsrChain,
+): ScannerSchemaInfo {
+  return {
+    schema_id: Array.from(hexToBytes(schema.schemaId as Hex)),
+    authority: Array.from(identityToScannerIssuer(schema.authority, chain)),
+    delegates: schema.delegates.map((d) => Array.from(identityToScannerIssuer(d, chain))),
+    deprecated: schema.deprecated,
+    schema_expiry_slot: schema.schemaExpirySlot,
+    name: schema.name,
+  };
+}
+
+function normalizeScannerIssuer(identity: string, chain: PsrChain): string {
+  return bytesToHex(identityToScannerIssuer(identity, chain));
+}
+
+function identityToScannerIssuer(identity: string, chain: PsrChain): Uint8Array {
+  const trimmed = identity.trim();
+  if (chain === "ethereum" || trimmed.startsWith("0x")) {
+    const bytes = hexToBytes((trimmed.startsWith("0x") ? trimmed : `0x${trimmed}`) as Hex);
+    if (bytes.length === 32) return bytes;
+    if (bytes.length === 20) {
+      const out = new Uint8Array(32);
+      out.set(bytes, 12);
+      return out;
+    }
+    throw new Error(`Opaque PSR: expected 20-byte address or 32-byte issuer hex, got ${identity}.`);
+  }
+  return new PublicKey(trimmed).toBytes();
 }
 
 /** Accept an ABI string or {@link FieldDef}s and return the canonical ABI string. */

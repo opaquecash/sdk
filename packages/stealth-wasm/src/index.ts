@@ -187,6 +187,26 @@ export function encodeAttestationMetadata(
 }
 
 /**
+ * Encode V2 PSR attestation metadata for a stealth announcement.
+ */
+export function encodeV2AttestationMetadataWasm(
+  wasm: StealthWasmModule,
+  viewTag: number,
+  schemaIdHex: string,
+  issuerHex: string,
+  attestationUidHex: string,
+  nonceHex: string,
+): string {
+  return wasm.encode_v2_attestation_metadata_wasm(
+    viewTag,
+    schemaIdHex,
+    issuerHex,
+    attestationUidHex,
+    nonceHex,
+  );
+}
+
+/**
  * Scan announcements JSON and return JSON string of matching stealth attestations.
  */
 export function scanAttestationsJson(
@@ -240,6 +260,28 @@ export function scanAttestationsJson(
     coerced,
     viewPrivkeyBytes,
     spendPubkeyBytes,
+  );
+}
+
+/**
+ * Scan announcements JSON and return JSON string of matching V2 schema-bound attestations.
+ */
+export function scanAttestationsV2Json(
+  wasm: StealthWasmModule,
+  announcementsJson: string,
+  schemasJson: string,
+  viewPrivkeyBytes: Uint8Array,
+  spendPubkeyBytes: Uint8Array,
+  currentSlot: number | bigint,
+  trustedIssuersJson: string = "",
+): string {
+  return wasm.scan_attestations_v2_wasm(
+    coerceAnnouncementsJsonForWasm(announcementsJson),
+    schemasJson,
+    viewPrivkeyBytes,
+    spendPubkeyBytes,
+    BigInt(currentSlot),
+    trustedIssuersJson,
   );
 }
 

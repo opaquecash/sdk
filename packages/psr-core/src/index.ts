@@ -11,9 +11,12 @@ export { buildActionScope, externalNullifierFromScope } from "./scope.js";
 
 export type {
   Attestation,
+  AttestationIdentifier,
   DiscoveredTrait,
   MerkleRootMeta,
   ProofData,
+  V2Attestation,
+  V2MerkleLeafPreimage,
 } from "./types.js";
 
 export {
@@ -23,7 +26,10 @@ export {
   NullifierUsedError,
 } from "./errors.js";
 
-export { attestationsToDiscoveredTraits } from "./traits.js";
+export {
+  attestationsToDiscoveredTraits,
+  v2AttestationsToDiscoveredTraits,
+} from "./traits.js";
 
 // PSR V2 schema + attestation codecs (chain-neutral).
 export {

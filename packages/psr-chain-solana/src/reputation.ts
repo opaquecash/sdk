@@ -120,7 +120,7 @@ export function buildVerifyReputationInstruction(params: {
   proofB: Uint8Array;
   proofC: Uint8Array;
   rootBytes: Uint8Array;
-  attestationId: number | bigint;
+  attestationId: number | bigint | string;
   externalNullifier: string | bigint;
   nullifierBytes: Uint8Array;
   discriminator?: Uint8Array;
@@ -167,7 +167,7 @@ export async function submitReputationProof(
      */
     nullifier: string | bigint;
     externalNullifier: string | bigint;
-    attestationId: number | bigint;
+    attestationId: number | bigint | string;
     publicKey: PublicKey;
     signTransaction: (tx: Transaction) => Promise<Transaction>;
   },

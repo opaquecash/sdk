@@ -1,6 +1,6 @@
 {
   "name": "@opaquecash/stealth-wasm",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Loader and TypeScript bindings for Opaque cryptography (wasm-pack) module",
   "type": "module",
   "main": "./dist/index.js",

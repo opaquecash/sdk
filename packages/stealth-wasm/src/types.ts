@@ -47,6 +47,17 @@ export interface StealthWasmModule {
   ): string;
 
   /**
+   * Encode V2 PSR attestation metadata for `announce` calldata.
+   */
+  encode_v2_attestation_metadata_wasm(
+    viewTag: number,
+    schemaIdHex: string,
+    issuerHex: string,
+    attestationUidHex: string,
+    nonceHex: string,
+  ): string;
+
+  /**
    * Reconstruct the 32-byte one-time stealth **private** key for spend / PSR witness input.
    */
   reconstruct_signing_key_wasm(
@@ -62,6 +73,18 @@ export interface StealthWasmModule {
     announcementsJson: string,
     viewPrivkeyBytes: Uint8Array,
     spendPubkeyBytes: Uint8Array,
+  ): string;
+
+  /**
+   * Scan announcements JSON for V2 schema-bound attestations for this recipient.
+   */
+  scan_attestations_v2_wasm(
+    announcementsJson: string,
+    schemasJson: string,
+    viewPrivkeyBytes: Uint8Array,
+    spendPubkeyBytes: Uint8Array,
+    currentSlot: bigint,
+    trustedIssuersJson: string,
   ): string;
 }
 

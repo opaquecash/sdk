@@ -63,9 +63,9 @@ export async function generateGroth16Proof(
     },
     publicSignals,
     nullifier: nullifierHash,
-    attestationId: Number.isFinite(attestationIdFromProof)
+    attestationId: Number.isSafeInteger(attestationIdFromProof)
       ? attestationIdFromProof
-      : Number(witness.attestation_id),
+      : publicSignals[1],
   };
 }
 
