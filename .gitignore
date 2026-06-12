@@ -5,3 +5,4 @@ dist
 .env
 *.log
 coverage
+tools/frost-custodian/target/

@@ -1,0 +1,16 @@
+[package]
+name = "frost-custodian"
+version = "0.1.0"
+edition = "2021"
+description = "Custodian CLI for Opaque conditional disclosure: FROST(secp256k1, Taproot) DKG + 2-round threshold signing of disclosure contexts (spec/conditional-disclosure.md §5)"
+license = "GPL-3.0"
+
+[dependencies]
+frost-secp256k1-tr = "3.0.0"
+k256 = { version = "0.13", features = ["arithmetic"] }
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+hex = "0.4"
+anyhow = "1"
+rand = "0.8"

@@ -10,6 +10,7 @@
   "scripts": { "build": "tsc -p tsconfig.json", "clean": "rm -rf dist" },
   "dependencies": {
     "@noble/curves": "^1.6.0",
+    "@solana/web3.js": "^1.98.4",
     "@opaquecash/deployments": "0.1.0",
     "@opaquecash/privacy-pool": "0.1.0",
     "shamir-secret-sharing": "^0.0.4",
