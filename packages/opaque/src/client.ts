@@ -1029,7 +1029,7 @@ export class OpaqueClient {
   // ------------------------------------------------------------------ ONS names
 
   /**
-   * Register `label`.<parent> for THIS wallet's meta-address on the canonical
+   * Register `label.parent` for THIS wallet's meta-address on the canonical
    * OpaqueNameRegistry (Ethereum; spec/ONS.md §4.1). Immediately authoritative;
    * the Solana mirror follows after Wormhole relay. Submits with the configured
    * Ethereum signer and returns the tx hash.
@@ -1049,7 +1049,7 @@ export class OpaqueClient {
   }
 
   /**
-   * Claim `label`.<parent> from Solana (spec/ONS.md §4.2). Creates a PROVISIONAL
+   * Claim `label.parent` from Solana (spec/ONS.md §4.2). Creates a PROVISIONAL
    * claim and publishes it to the canonical registry via Wormhole; it becomes
    * authoritative only when the registry confirms (mirror record appears), and it
    * loses to any concurrent direct Ethereum registration. Track with
