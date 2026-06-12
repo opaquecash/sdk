@@ -1,6 +1,6 @@
 {
   "name": "@opaquecash/deployments",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Generated Opaque deployment registry: EVM contract addresses + ABIs and Solana program ids, emitted by the chain repos' generate scripts",
   "type": "module",
   "main": "./dist/index.js",

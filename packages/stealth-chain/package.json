@@ -1,6 +1,6 @@
 {
   "name": "@opaquecash/stealth-chain",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Viem helpers for StealthMetaAddressRegistry and StealthAddressAnnouncer",
   "type": "module",
   "main": "./dist/index.js",
