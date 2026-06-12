@@ -7,6 +7,7 @@
  * fixture's public signals exactly. Also covers note generation, witness assembly, and
  * tx building. No network, no proving.
  */
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,6 +25,10 @@ import {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FIX = path.join(__dirname, "..", "..", "circuits", "test", "fixtures", "pool");
 const load = async (f: string) => JSON.parse(await readFile(path.join(FIX, f), "utf8"));
+// The circuits repo lives as a SIBLING of the sdk checkout in the monorepo layout;
+// in CI the sdk is checked out alone, so the fixture-backed test skips (same pattern
+// as the WASM-gated suites).
+const fixturesPresent = existsSync(FIX);
 
 function singleLeafRoot(crypto: Awaited<ReturnType<typeof buildPoolCrypto>>, leaf: bigint): bigint {
   let n = leaf;
@@ -32,7 +37,7 @@ function singleLeafRoot(crypto: Awaited<ReturnType<typeof buildPoolCrypto>>, lea
 }
 
 describe("pool crypto matches the committed circuit fixture", () => {
-  it("reproduces the fixture public signals from its private inputs", async () => {
+  it.skipIf(!fixturesPresent)("reproduces the fixture public signals from its private inputs", async () => {
     const crypto = await buildPoolCrypto();
     const input = await load("input.json");
     const pub: string[] = await load("public.json");

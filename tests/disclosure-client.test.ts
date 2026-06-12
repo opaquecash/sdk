@@ -6,6 +6,7 @@
  * by the frost-custodian CLI's 2-of-3 ceremony) — the cross-implementation interop
  * proof. No network, no proving.
  */
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -37,9 +38,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CIRCUIT_FIX = path.join(__dirname, "..", "..", "circuits", "test", "fixtures", "disclosure");
 const FROST_FIX = path.join(__dirname, "fixtures", "frost", "signature.json");
 const load = async (f: string) => JSON.parse(await readFile(path.join(CIRCUIT_FIX, f), "utf8"));
+// The circuits repo lives as a SIBLING of the sdk checkout in the monorepo layout;
+// in CI the sdk is checked out alone, so fixture-backed tests skip (same pattern as
+// the WASM-gated suites).
+const circuitFixPresent = existsSync(CIRCUIT_FIX);
 
 describe("disclosure witness matches the committed circuit fixture", () => {
-  it("reproduces the fixture public signals from its private inputs", async () => {
+  it.skipIf(!circuitFixPresent)("reproduces the fixture public signals from its private inputs", async () => {
     const crypto = await buildPoolCrypto();
     const input = await load("input.json");
     const pub: string[] = await load("public.json");
@@ -73,7 +78,7 @@ describe("disclosure witness matches the committed circuit fixture", () => {
     expect(witness.input.state_root).toBe(input.state_root);
   });
 
-  it("verifies the fixture proof against the production vkey", async () => {
+  it.skipIf(!circuitFixPresent)("verifies the fixture proof against the production vkey", async () => {
     const ok = await snarkjs.groth16.verify(
       await load("verification_key.json"),
       await load("public.json"),
@@ -163,7 +168,7 @@ describe("tx builders", () => {
   const REGISTRY = "0x000000000000000000000000000000000000dEaD" as const;
   const PROGRAM = new PublicKey("7sDCTbMDwjzYA3KHhNPZUVa8Swvj6adJTgSkJqmsn6V7");
 
-  it("encodes registerPolicy and disclose calldata", async () => {
+  it.skipIf(!circuitFixPresent)("encodes registerPolicy and disclose calldata", async () => {
     const reg = buildRegisterPolicyTx(REGISTRY, {
       pool: "0x49a5bB6d079a43d50596069b4F2632005CFe729E",
       groupKeyX: 123n,
@@ -187,7 +192,7 @@ describe("tx builders", () => {
     expect(tx.data.length).toBe(2 + 8 + 64 * 19);
   });
 
-  it("builds the Solana disclose instruction with the program's account order", async () => {
+  it.skipIf(!circuitFixPresent)("builds the Solana disclose instruction with the program's account order", async () => {
     const proof = await load("proof.json");
     const input = await load("input.json");
     const requester = PublicKey.unique();
