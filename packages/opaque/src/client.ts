@@ -1699,6 +1699,12 @@ export class OpaqueClient {
       this.evmAdapter ??= new EvmAdapter({
         publicClient: this.publicClient,
         announcerAddress: this.announcer,
+        // announceWithRelay mirrors the Announcement event from UABSender, not the
+        // announcer singleton; without this, relay-sent payments are invisible to the
+        // local scan and only discoverable via the destination chain's RPC.
+        uabSenderAddress:
+          this.config.contracts?.uabSender ??
+          getUabDeployment(this.config.chainId)?.uabSender,
         registryAddress: this.registry,
         evmChainId: this.config.chainId,
         schemeId: BigInt(EIP5564_SCHEME_SECP256K1),

@@ -39,6 +39,12 @@ export interface EvmAdapterConfig {
   rpcUrl?: string;
   /** `StealthAddressAnnouncer` address. */
   announcerAddress: Address;
+  /**
+   * `UABSender` address. `announceWithRelay` mirrors the ERC-5564 `Announcement` event from
+   * this contract (the announcer singleton is left untouched), so relay-sent payments are
+   * only locally scannable when its logs are read too.
+   */
+  uabSenderAddress?: Address;
   /** `StealthMetaAddressRegistry` address. */
   registryAddress: Address;
   /** Underlying EVM chain id (e.g. 11155111 Sepolia); informational. Wormhole id is fixed at 2. */
@@ -70,7 +76,7 @@ export class EvmAdapter implements ChainAdapter {
   readonly evmChainId?: number;
   readonly publicClient: PublicClient;
 
-  private readonly announcerAddress: Address;
+  private readonly announcerAddresses: Address | Address[];
   private readonly registryAddress: Address;
   private readonly schemeId: bigint;
   private readonly fromBlock: bigint;
@@ -81,7 +87,9 @@ export class EvmAdapter implements ChainAdapter {
     }
     this.publicClient = (config.publicClient ??
       createPublicClient({ transport: http(config.rpcUrl) })) as PublicClient;
-    this.announcerAddress = config.announcerAddress;
+    this.announcerAddresses = config.uabSenderAddress
+      ? [config.announcerAddress, config.uabSenderAddress]
+      : config.announcerAddress;
     this.registryAddress = config.registryAddress;
     this.evmChainId = config.evmChainId;
     this.schemeId = config.schemeId ?? BigInt(EIP5564_SCHEME_SECP256K1);
@@ -92,7 +100,7 @@ export class EvmAdapter implements ChainAdapter {
     opts: FetchAnnouncementsOptions = {},
   ): Promise<Announcement[]> {
     const decoded = await fetchAnnouncementsRange(this.publicClient, {
-      announcerAddress: this.announcerAddress,
+      announcerAddress: this.announcerAddresses,
       fromBlock: opts.fromCursor ?? this.fromBlock,
       toBlock: opts.toCursor ?? "latest",
     });
@@ -114,7 +122,7 @@ export class EvmAdapter implements ChainAdapter {
 
   watchAnnouncements(handlers: AnnouncementHandlers): () => void {
     return watchAnnouncements(this.publicClient, {
-      announcerAddress: this.announcerAddress,
+      announcerAddress: this.announcerAddresses,
       fromBlock: this.fromBlock,
       onAnnouncement: (decoded) =>
         handlers.onAnnouncement(evmAnnouncementToNeutral(decoded)),

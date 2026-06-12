@@ -58,8 +58,8 @@ export async function announceStealthTransfer<
  * Options for {@link watchAnnouncements}.
  */
 export interface WatchAnnouncementsOptions {
-  /** `StealthAddressAnnouncer` address. */
-  announcerAddress: Address;
+  /** `StealthAddressAnnouncer` address(es); include mirroring contracts such as `UABSender`. */
+  announcerAddress: Address | Address[];
   /** Inclusive lower bound block for log subscription / polling. */
   fromBlock?: bigint;
   /** Called for each decoded announcement (sync errors should be handled by the caller). */
@@ -141,7 +141,7 @@ const MIN_LOG_CHUNK_BLOCKS = 1_000n;
 async function getAnnouncementLogsChunked(
   publicClient: PublicClient,
   params: {
-    announcerAddress: Address;
+    announcerAddress: Address | Address[];
     fromBlock: bigint;
     toBlock: bigint;
     chunkBlocks: bigint;
@@ -177,13 +177,14 @@ async function getAnnouncementLogsChunked(
  * (often 10k–50k blocks) don't fail the scan.
  *
  * @param publicClient - Viem public client.
- * @param params - Announcer address and block range.
+ * @param params - Announcer address(es) and block range. Pass an array to also cover contracts
+ *   that mirror the `Announcement` event (e.g. `UABSender`); one `eth_getLogs` covers them all.
  * @returns Decoded announcements in log order.
  */
 export async function fetchAnnouncementsRange(
   publicClient: PublicClient,
   params: {
-    announcerAddress: Address;
+    announcerAddress: Address | Address[];
     fromBlock: bigint;
     toBlock: bigint | "latest";
     /** Maximum blocks per `eth_getLogs` call (default 45000). */

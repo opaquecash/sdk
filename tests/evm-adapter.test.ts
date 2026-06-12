@@ -76,6 +76,43 @@ describe("EvmAdapter", () => {
   });
 });
 
+describe("EvmAdapter UABSender mirrored announcements", () => {
+  const UAB_SENDER = ("0x" + "44".repeat(20)) as `0x${string}`;
+
+  function adapterWithLogCapture(config: { uabSenderAddress?: `0x${string}` }) {
+    const captured: { address?: unknown }[] = [];
+    const publicClient = {
+      getBlockNumber: async () => 200n,
+      getContractEvents: async (params: { address?: unknown }) => {
+        captured.push(params);
+        return [];
+      },
+    } as unknown as PublicClient;
+    const a = new EvmAdapter({
+      publicClient,
+      announcerAddress: ANNOUNCER,
+      registryAddress: REGISTRY,
+      fromBlock: 100n,
+      ...config,
+    });
+    return { adapter: a, captured };
+  }
+
+  it("fetches Announcement logs from both the announcer and UABSender", async () => {
+    const { adapter: a, captured } = adapterWithLogCapture({ uabSenderAddress: UAB_SENDER });
+    await a.fetchAnnouncements();
+    expect(captured).toHaveLength(1);
+    expect(captured[0].address).toEqual([ANNOUNCER, UAB_SENDER]);
+  });
+
+  it("fetches from the announcer alone when no UABSender is configured", async () => {
+    const { adapter: a, captured } = adapterWithLogCapture({});
+    await a.fetchAnnouncements();
+    expect(captured).toHaveLength(1);
+    expect(captured[0].address).toBe(ANNOUNCER);
+  });
+});
+
 describe("announcementToIndexerRow (unified inbox mapping)", () => {
   it("maps an EVM-style announcement (block cursor + 0x hash)", () => {
     const a: Announcement = {
