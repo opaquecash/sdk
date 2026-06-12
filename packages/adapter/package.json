@@ -1,6 +1,6 @@
 {
   "name": "@opaquecash/adapter",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Chain-agnostic ChainAdapter interface and chain-neutral Announcement type for the Opaque SDK",
   "type": "module",
   "main": "./dist/index.js",
@@ -18,5 +18,15 @@
     "build": "tsc -p tsconfig.json",
     "clean": "rm -rf dist"
   },
-  "sideEffects": false
+  "sideEffects": false,
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/opaquecash/sdk.git",
+    "directory": "packages/adapter"
+  },
+  "homepage": "https://docs.opaque.cash",
+  "publishConfig": {
+    "access": "public"
+  }
 }

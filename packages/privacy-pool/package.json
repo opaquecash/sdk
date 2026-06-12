@@ -1,18 +1,38 @@
 {
   "name": "@opaquecash/privacy-pool",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Privacy pool client: deposit commitments, Poseidon Merkle trees, withdrawal witness + Groth16 proof generation, and deposit/withdraw tx building (spec/privacy-pool.md)",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
-  "files": ["dist"],
-  "scripts": { "build": "tsc -p tsconfig.json", "clean": "rm -rf dist" },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist"
+  },
   "dependencies": {
-    "@opaquecash/deployments": "0.1.0",
+    "@opaquecash/deployments": "0.2.0",
     "circomlibjs": "^0.1.7",
     "snarkjs": "^0.7.5",
     "viem": "^2.21.0"
   },
-  "sideEffects": false
+  "sideEffects": false,
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/opaquecash/sdk.git",
+    "directory": "packages/privacy-pool"
+  },
+  "homepage": "https://docs.opaque.cash",
+  "publishConfig": {
+    "access": "public"
+  }
 }

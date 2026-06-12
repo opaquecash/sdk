@@ -1,6 +1,6 @@
 {
   "name": "@opaquecash/stealth-chain",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "description": "Viem helpers for StealthMetaAddressRegistry and StealthAddressAnnouncer",
   "type": "module",
   "main": "./dist/index.js",
@@ -20,9 +20,19 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@opaquecash/adapter": "0.1.0",
-    "@opaquecash/stealth-core": "0.1.0",
+    "@opaquecash/adapter": "0.2.0",
+    "@opaquecash/stealth-core": "0.2.0",
     "viem": "^2.21.0"
   },
-  "sideEffects": false
+  "sideEffects": false,
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/opaquecash/sdk.git",
+    "directory": "packages/stealth-chain"
+  },
+  "homepage": "https://docs.opaque.cash",
+  "publishConfig": {
+    "access": "public"
+  }
 }

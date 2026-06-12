@@ -1,6 +1,6 @@
 {
   "name": "@opaquecash/psr-prover",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Circom witness helpers and Groth16 proving (snarkjs) for PSR",
   "type": "module",
   "main": "./dist/index.js",
@@ -19,12 +19,22 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@opaquecash/psr-core": "0.1.0",
-    "@opaquecash/stealth-wasm": "0.1.0",
+    "@opaquecash/psr-core": "0.2.0",
+    "@opaquecash/stealth-wasm": "0.2.0",
     "buffer": "^6.0.3",
     "circomlibjs": "^0.1.7",
     "snarkjs": "^0.7.5",
     "viem": "^2.21.0"
   },
-  "sideEffects": false
+  "sideEffects": false,
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/opaquecash/sdk.git",
+    "directory": "packages/psr-prover"
+  },
+  "homepage": "https://docs.opaque.cash",
+  "publishConfig": {
+    "access": "public"
+  }
 }

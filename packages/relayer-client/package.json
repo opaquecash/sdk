@@ -1,6 +1,6 @@
 {
   "name": "@opaquecash/relayer-client",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Client for the Opaque gas-private submission market: build jobs, fund the escrow, collect relayer bids, encrypt the payload to the winner, and track settlement (spec/relayer-market.md)",
   "type": "module",
   "main": "./dist/index.js",
@@ -22,9 +22,19 @@
     "@noble/ciphers": "^1.0.0",
     "@noble/curves": "^1.6.0",
     "@noble/hashes": "^1.5.0",
-    "@opaquecash/deployments": "0.1.0",
+    "@opaquecash/deployments": "0.2.0",
     "@solana/web3.js": "^1.98.4",
     "viem": "^2.21.0"
   },
-  "sideEffects": false
+  "sideEffects": false,
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/opaquecash/sdk.git",
+    "directory": "packages/relayer-client"
+  },
+  "homepage": "https://docs.opaque.cash",
+  "publishConfig": {
+    "access": "public"
+  }
 }

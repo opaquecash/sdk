@@ -1,6 +1,6 @@
 {
   "name": "@opaquecash/uab",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Universal Announcement Bus: cross-chain stealth announcements over Wormhole (send via UABSender, discover via UABReceiver, fetch VAAs)",
   "type": "module",
   "main": "./dist/index.js",
@@ -19,9 +19,19 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@opaquecash/deployments": "0.1.0",
-    "@opaquecash/stealth-core": "0.1.0",
+    "@opaquecash/deployments": "0.2.0",
+    "@opaquecash/stealth-core": "0.2.0",
     "viem": "^2.21.0"
   },
-  "sideEffects": false
+  "sideEffects": false,
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/opaquecash/sdk.git",
+    "directory": "packages/uab"
+  },
+  "homepage": "https://docs.opaque.cash",
+  "publishConfig": {
+    "access": "public"
+  }
 }
