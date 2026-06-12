@@ -31,6 +31,7 @@ export {
   type PsrTxResult,
   type CreateSchemaResult,
   type IssueAttestationResult,
+  type DiscoverTraitsV2Options,
   type DummyAnnouncement,
   announcementToIndexerRow,
 } from "./client.js";

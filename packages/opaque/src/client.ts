@@ -1893,7 +1893,8 @@ export class OpaqueClient {
   }
 
   /**
-   * PSR: map owned attestation markers to {@link DiscoveredTrait} list.
+   * Legacy PSR V1: map owned `0xA7` attestation markers to a {@link DiscoveredTrait} list.
+   * Use {@link discoverTraitsV2} for schema-bound V2 attestations created by {@link issueAttestation}.
    */
   async discoverTraits(
     rows: IndexerAnnouncement[],
@@ -1947,7 +1948,7 @@ export class OpaqueClient {
   }
 
   /**
-   * PSR: same as {@link discoverTraits} — alias for reputation-focused call sites.
+   * Legacy PSR V1: same as {@link discoverTraits}, an alias for older reputation call sites.
    */
   async getReputationTraitsFromAnnouncements(
     rows: IndexerAnnouncement[],
@@ -1956,7 +1957,8 @@ export class OpaqueClient {
   }
 
   /**
-   * Encode `announce` metadata for a PSR attestation (view tag byte + `0xA7` + u64 `attestationId`).
+   * Legacy V1: encode `announce` metadata for a PSR attestation
+   * (view tag byte + `0xA7` + u64 `attestationId`).
    * Canonical encoding matches WASM/Rust; use with {@link prepareReputationAssignment}.
    */
   encodeReputationMetadata(viewTag: number, attestationId: bigint): Uint8Array {
@@ -1969,7 +1971,8 @@ export class OpaqueClient {
   }
 
   /**
-   * Issuer flow: derive one-time stealth material for the recipient and embed `attestationId` in metadata.
+   * Legacy V1 issuer flow: derive one-time stealth material for the recipient and embed
+   * `attestationId` in metadata.
    */
   prepareReputationAssignment(
     recipientMetaAddressHex: Hex,
@@ -1981,7 +1984,8 @@ export class OpaqueClient {
   }
 
   /**
-   * Issuer flow: calldata for `StealthAddressAnnouncer.announce` with PSR metadata (no asset transfer).
+   * Legacy V1 issuer flow: calldata for `StealthAddressAnnouncer.announce` with PSR metadata
+   * (no asset transfer).
    */
   buildAssignReputationTransaction(
     recipientMetaAddressHex: Hex,
@@ -2453,7 +2457,7 @@ export class OpaqueClient {
   getStealthSignerPrivateKeyForReputationTrait(trait: DiscoveredTrait): Uint8Array {
     if (!trait.ephemeralPubkey?.length) {
       throw new Error(
-        "Opaque: DiscoveredTrait.ephemeralPubkey is required (use discoverTraits / getReputationTraitsFromAnnouncements)",
+        "Opaque: DiscoveredTrait.ephemeralPubkey is required (use discoverTraitsV2, or legacy discoverTraits / getReputationTraitsFromAnnouncements)",
       );
     }
     const ephemeralPublicKey = (`0x${trait.ephemeralPubkey
@@ -2466,6 +2470,8 @@ export class OpaqueClient {
    * V2 Groth16 proof bundle for the reputation verifiers (requires `snarkjs`).
    * When `artifacts` is omitted, the V2 wasm/zkey are loaded from the default hosted paths on
    * opaque.cash (same as the Opaque frontend `/circuits/v2/...` assets).
+   * Traits returned by {@link discoverTraitsV2} carry `merkleLeafPreimage`, which supplies
+   * `issuerPkX`, `traitDataHash`, and `nonce` automatically unless these params are overridden.
    *
    * Public signals: `[merkle_root, attestation_id, external_nullifier, nullifier_hash]`;
    * `ProofData.nullifier` carries `nullifier_hash`.

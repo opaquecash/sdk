@@ -72,9 +72,13 @@ const rows: IndexerAnnouncement[] = [
 | Announce calldata | `buildAnnounceTransactionRequest(prepareResult)` |
 | Owned outputs | `filterOwnedAnnouncements(rows)` |
 | Balances by token | `getBalancesFromAnnouncements(rows)` |
-| PSR traits | `discoverTraits(rows)` |
+| PSR traits | `discoverTraitsV2(rows, { chain })` |
 
 You always submit transactions from your own wallet; the SDK returns **structured calldata** and **read results**.
+
+Use `discoverTraits(rows)` only for legacy V1 `0xA7` attestation markers. Schema-bound
+attestations created by `issueAttestation` use V2 `0xB2` metadata and require
+`discoverTraitsV2`.
 
 ## Lower-level packages
 
