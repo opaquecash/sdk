@@ -47,7 +47,7 @@ import {
   buildOnsReconcileInstruction,
   type OnsClaimStatus,
 } from "@opaquecash/stealth-chain-solana";
-import { getOnsDeployment } from "@opaquecash/deployments";
+import { getEvmDeployment, getOnsDeployment } from "@opaquecash/deployments";
 
 /** Minimal write/read surface of the canonical OpaqueNameRegistry (spec/ONS.md §2). */
 const onsNameRegistryAbi = [
@@ -1702,6 +1702,8 @@ export class OpaqueClient {
         registryAddress: this.registry,
         evmChainId: this.config.chainId,
         schemeId: BigInt(EIP5564_SCHEME_SECP256K1),
+        // Scanning from block 0 both wastes RPC calls and trips public-RPC range caps.
+        fromBlock: getEvmDeployment(this.config.chainId)?.stealthFromBlock ?? 0n,
       });
       return this.evmAdapter;
     }

@@ -33,17 +33,55 @@ export interface UabIndexerAnnouncement {
   viewTag: number;
 }
 
-/** Read CrossChainAnnouncement events from a UABReceiver over a block range. */
+/**
+ * Default `eth_getLogs` window. Public RPCs cap the queryable range (publicnode: 50k blocks,
+ * others as low as 10k); large ranges are split into windows of this size.
+ */
+const DEFAULT_LOG_CHUNK_BLOCKS = 45_000n;
+/** Below this window size a range error is considered fatal rather than splittable. */
+const MIN_LOG_CHUNK_BLOCKS = 1_000n;
+
+/**
+ * Read CrossChainAnnouncement events from a UABReceiver over a block range, in bounded
+ * `eth_getLogs` windows (halved on provider range errors) so public RPC block-range caps
+ * don't fail the scan.
+ */
 export async function fetchCrossChainAnnouncements(
   client: PublicClient,
-  params: { uabReceiver: Address; fromBlock: bigint; toBlock?: bigint | "latest" },
+  params: {
+    uabReceiver: Address;
+    fromBlock: bigint;
+    toBlock?: bigint | "latest";
+    /** Maximum blocks per `eth_getLogs` call (default 45000). */
+    chunkBlocks?: bigint;
+  },
 ): Promise<CrossChainAnnouncementRecord[]> {
-  const logs = await client.getLogs({
-    address: params.uabReceiver,
-    event: crossChainAnnouncementEvent,
-    fromBlock: params.fromBlock,
-    toBlock: params.toBlock ?? "latest",
-  });
+  const toBlock =
+    params.toBlock == null || params.toBlock === "latest"
+      ? await client.getBlockNumber()
+      : params.toBlock;
+  if (params.fromBlock > toBlock) return [];
+
+  type UabLogs = Awaited<ReturnType<typeof client.getLogs<typeof crossChainAnnouncementEvent>>>;
+  const logs: UabLogs = [];
+  let chunk = params.chunkBlocks ?? DEFAULT_LOG_CHUNK_BLOCKS;
+  let from = params.fromBlock;
+  while (from <= toBlock) {
+    const to = from + chunk - 1n < toBlock ? from + chunk - 1n : toBlock;
+    try {
+      const page = await client.getLogs({
+        address: params.uabReceiver,
+        event: crossChainAnnouncementEvent,
+        fromBlock: from,
+        toBlock: to,
+      });
+      logs.push(...page);
+      from = to + 1n;
+    } catch (e) {
+      if (chunk <= MIN_LOG_CHUNK_BLOCKS) throw e;
+      chunk = chunk / 2n;
+    }
+  }
 
   return logs.map((log) => {
     const payloadHex = log.args.payload as Hex;

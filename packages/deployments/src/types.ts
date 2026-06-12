@@ -47,6 +47,8 @@ export interface EvmDeployment {
   contracts: EvmContracts;
   /** Wormhole ids: this chain and the trusted cross-chain source. */
   wormhole: { chainId: number; sourceChainId: number };
+  /** Block the stealth stack (announcer + registry) was deployed at; never scan announcements before it. */
+  stealthFromBlock: bigint;
   /** Block the V2 PSR stack was deployed at; never scan PSR logs before it. */
   psrFromBlock: bigint;
   /** Block the UAB contracts were deployed at; never scan UAB logs before it. */

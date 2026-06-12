@@ -126,7 +126,55 @@ export function watchAnnouncements(
 }
 
 /**
- * Fetch historical `Announcement` logs in a block range and decode them.
+ * Default `eth_getLogs` window. Public RPCs cap the queryable range (publicnode: 50k blocks,
+ * others as low as 10k); large ranges are split into windows of this size.
+ */
+const DEFAULT_LOG_CHUNK_BLOCKS = 45_000n;
+/** Below this window size a range error is considered fatal rather than splittable. */
+const MIN_LOG_CHUNK_BLOCKS = 1_000n;
+
+/**
+ * Fetch `Announcement` logs over `[fromBlock, toBlock]` in bounded windows, halving the window
+ * on provider range errors (every provider words its cap differently, so any error on a
+ * splittable window triggers a split).
+ */
+async function getAnnouncementLogsChunked(
+  publicClient: PublicClient,
+  params: {
+    announcerAddress: Address;
+    fromBlock: bigint;
+    toBlock: bigint;
+    chunkBlocks: bigint;
+  },
+): Promise<Awaited<ReturnType<PublicClient["getContractEvents"]>>> {
+  const logs: Awaited<ReturnType<PublicClient["getContractEvents"]>> = [];
+  let chunk = params.chunkBlocks;
+  let from = params.fromBlock;
+  while (from <= params.toBlock) {
+    const to =
+      from + chunk - 1n < params.toBlock ? from + chunk - 1n : params.toBlock;
+    try {
+      const page = await publicClient.getContractEvents({
+        address: params.announcerAddress,
+        abi: stealthAddressAnnouncerAbi,
+        eventName: "Announcement",
+        fromBlock: from,
+        toBlock: to,
+      });
+      logs.push(...page);
+      from = to + 1n;
+    } catch (e) {
+      if (chunk <= MIN_LOG_CHUNK_BLOCKS) throw e;
+      chunk = chunk / 2n;
+    }
+  }
+  return logs;
+}
+
+/**
+ * Fetch historical `Announcement` logs in a block range and decode them. Ranges wider than
+ * `chunkBlocks` are fetched in multiple `eth_getLogs` calls so public RPC block-range caps
+ * (often 10k–50k blocks) don't fail the scan.
  *
  * @param publicClient - Viem public client.
  * @param params - Announcer address and block range.
@@ -138,14 +186,20 @@ export async function fetchAnnouncementsRange(
     announcerAddress: Address;
     fromBlock: bigint;
     toBlock: bigint | "latest";
+    /** Maximum blocks per `eth_getLogs` call (default 45000). */
+    chunkBlocks?: bigint;
   },
 ): Promise<AnnouncementDecoded[]> {
-  const logs = await publicClient.getContractEvents({
-    address: params.announcerAddress,
-    abi: stealthAddressAnnouncerAbi,
-    eventName: "Announcement",
+  const toBlock =
+    params.toBlock === "latest"
+      ? await publicClient.getBlockNumber()
+      : params.toBlock;
+  if (params.fromBlock > toBlock) return [];
+  const logs = await getAnnouncementLogsChunked(publicClient, {
+    announcerAddress: params.announcerAddress,
     fromBlock: params.fromBlock,
-    toBlock: params.toBlock,
+    toBlock,
+    chunkBlocks: params.chunkBlocks ?? DEFAULT_LOG_CHUNK_BLOCKS,
   });
 
   const out: AnnouncementDecoded[] = [];

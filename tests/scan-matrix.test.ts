@@ -73,10 +73,19 @@ function evmAnnouncementLog(p: Prep, logIndex: number) {
     data,
     topics,
     logIndex,
-    blockNumber: 100n,
+    blockNumber: EVM_NATIVE_LOG_BLOCK,
     transactionHash: ("0x" + "e1".repeat(32)) as Hex,
   };
 }
+
+// Realistic Sepolia heights: the adapter scans from the deployment registry's
+// stealthFromBlock/uabFromBlock, and the chunked log fetch queries bounded windows —
+// the stub must be range-aware or every window would return the same logs.
+const EVM_LATEST_BLOCK = 11_050_000n;
+const EVM_NATIVE_LOG_BLOCK = 11_040_000n;
+const EVM_UAB_LOG_BLOCK = 11_040_001n;
+const inRange = (block: bigint, r: { fromBlock: bigint; toBlock: bigint }) =>
+  r.fromBlock <= block && block <= r.toBlock;
 
 function uabPayloadFor(p: Prep, sourceChainId: number): Uint8Array {
   return encodeUabPayload({
@@ -163,24 +172,27 @@ describe.skipIf(!wasmPresent)("four-quadrant cross-chain scan matrix (2.2)", () 
 
     // --- Ethereum side: native Announcement raw logs + UABReceiver decoded logs ---
     const evmStub = {
-      getContractEvents: async () => [
-        evmAnnouncementLog(ethNative, 0),
-        evmAnnouncementLog(decoy, 1),
-      ],
-      getLogs: async () => [
-        {
-          args: {
-            sourceChain: 1,
-            sourceEmitter: ("0x" + "44".repeat(32)) as Hex,
-            sequence: 9n,
-            payload: bytesToHex0x(uabPayloadFor(solToEth, 1)),
-          },
-          transactionHash: ("0x" + "e2".repeat(32)) as Hex,
-          blockNumber: 101n,
-          logIndex: 0,
-        },
-      ],
-      getBlockNumber: async () => 200n,
+      getContractEvents: async (r: { fromBlock: bigint; toBlock: bigint }) =>
+        inRange(EVM_NATIVE_LOG_BLOCK, r)
+          ? [evmAnnouncementLog(ethNative, 0), evmAnnouncementLog(decoy, 1)]
+          : [],
+      getLogs: async (r: { fromBlock: bigint; toBlock: bigint }) =>
+        inRange(EVM_UAB_LOG_BLOCK, r)
+          ? [
+              {
+                args: {
+                  sourceChain: 1,
+                  sourceEmitter: ("0x" + "44".repeat(32)) as Hex,
+                  sequence: 9n,
+                  payload: bytesToHex0x(uabPayloadFor(solToEth, 1)),
+                },
+                transactionHash: ("0x" + "e2".repeat(32)) as Hex,
+                blockNumber: EVM_UAB_LOG_BLOCK,
+                logIndex: 0,
+              },
+            ]
+          : [],
+      getBlockNumber: async () => EVM_LATEST_BLOCK,
     };
     // The lazily-built EvmAdapter and the UAB merge both read this.publicClient.
     (client as unknown as { publicClient: unknown }).publicClient = evmStub;

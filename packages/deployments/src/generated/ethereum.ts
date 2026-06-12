@@ -24,8 +24,9 @@ export const EVM_DEPLOYMENTS: Record<number, EvmDeployment> = {
       wormholeCore: "0x4a8bc80Ed5a4067f1CCf107057b8270E0cC11A78",
     },
     wormhole: { chainId: 2, sourceChainId: 1 },
+    stealthFromBlock: 10298567n,
     psrFromBlock: 11019444n,
-    uabFromBlock: 0n,
+    uabFromBlock: 11022332n,
     tokens: [
       { address: "0x0000000000000000000000000000000000000000", symbol: "ETH", decimals: 18, native: true },
       { address: "0x73197e8303904862d543f9706E8422F634D713cb", symbol: "USDC", decimals: 6 },
