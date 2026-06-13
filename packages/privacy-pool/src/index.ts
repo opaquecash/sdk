@@ -10,6 +10,8 @@
  *   - {@link generateDepositNote} + {@link buildDepositTx}: shielded deposit.
  *   - {@link buildWithdrawalWitness} + {@link generateWithdrawalProof}: the ZK proof.
  *   - {@link buildWithdrawTx}: the on-chain withdrawal call.
+ *   - {@link reconstructAspSetFromDeposits} / {@link resolveAspSetViaEns}: obtain the
+ *     association set (`aspLeaves`/`aspIndex`) — self-authenticating against the on-chain root.
  *
  * @packageDocumentation
  */
@@ -42,3 +44,21 @@ export {
   type DepositNote,
   type EvmTxRequest,
 } from "./tx.js";
+
+export {
+  ASP_SET_RECORD_KEY,
+  DEFAULT_IPFS_GATEWAYS,
+  orderDeposits,
+  aspRootOf,
+  verifyAspRoot,
+  aspIndexOf,
+  reconstructAspSetFromDeposits,
+  ipfsPathFromInput,
+  fetchAspManifestFromIpfs,
+  resolveAspSetViaEns,
+  aspSetFromManifest,
+  type AspDeposit,
+  type AspSet,
+  type AspSetTransports,
+  type AspManifest,
+} from "./aspset.js";
