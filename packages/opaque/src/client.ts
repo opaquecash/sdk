@@ -32,7 +32,9 @@ import {
   stealthAddressAnnouncerAbi,
   getStealthMetaAddress as readRegistryMetaAddress,
   EvmAdapter,
+  erc20SweepAbi,
   sweepStealthNative,
+  sweepStealthToken as sweepEvmStealthToken,
 } from "@opaquecash/stealth-chain";
 import {
   SolanaAdapter,
@@ -45,6 +47,10 @@ import {
   fetchWormholeMessageFee,
   buildOnsClaimInstruction,
   buildOnsReconcileInstruction,
+  buildSplTransferInstructions,
+  resolveMintDecimals,
+  getStealthTokenBalance,
+  sweepStealthToken as sweepSolanaStealthToken,
   type OnsClaimStatus,
 } from "@opaquecash/stealth-chain-solana";
 import { getEvmDeployment, getOnsDeployment } from "@opaquecash/deployments";
@@ -416,10 +422,23 @@ export interface SendStealthPaymentParams {
    * Ethereum `0x` address — the latter two are resolved through the chain's registry.
    */
   recipient: string;
-  /** Amount in base units: lamports (Solana) or wei (Ethereum native). */
+  /**
+   * Amount in base units: lamports / wei for the native asset, or the token's smallest unit
+   * (raw, decimals-aware) when `token` is set.
+   */
   amount: bigint;
-  /** SPL mint / ERC-20 address; omit for native. Token sends are not yet supported (native only). */
+  /**
+   * SPL mint (base58) or ERC-20 address (`0x`) to send; omit for the native asset. The recipient
+   * receives the token at the stealth address (EVM) or that account's associated token account
+   * (Solana); the announcement is identical to a native send.
+   */
   token?: string;
+  /**
+   * Optional native top-up sent to the stealth address alongside a token send, so the recipient
+   * has gas to move the token later without a relayer. Wei (Ethereum) or lamports (Solana).
+   * Ignored for native sends.
+   */
+  gasDrop?: bigint;
   /** Publish the discovery announcement (default `true`). */
   announce?: boolean;
   /** Also relay the announcement cross-chain over Wormhole (default `false`). */
@@ -470,6 +489,19 @@ export interface OutputBalance {
   address: string;
   /** Native balance in base units (wei on Ethereum, lamports on Solana). */
   nativeRaw: bigint;
+}
+
+/** Balance of one token at one owned stealth output. */
+export interface OutputTokenBalance {
+  chain: OpaqueScanChain;
+  /** EVM-style 20-byte scanner address the announcement was matched on. */
+  stealthAddress: string;
+  /** Account holding the token: the stealth address (Ethereum) or its derived account (Solana). */
+  address: string;
+  /** ERC-20 contract address (Ethereum) or SPL mint (Solana base58). */
+  token: string;
+  /** Balance in the token's smallest unit. */
+  raw: bigint;
 }
 
 /** A cross-chain `announceWithRelay` built for Ethereum (submit `{to,data,value}` via wallet). */
@@ -1178,17 +1210,14 @@ export class OpaqueClient {
    *
    * Solana bundles the transfer and `announce` (or `announce_with_relay` when `relay` is set) into a
    * single transaction and returns its signature. Ethereum submits the value transfer first, then
-   * the announce, returning both tx hashes. Token (SPL/ERC-20) sends are not yet supported.
+   * the announce, returning both tx hashes. Set `token` to send an SPL mint / ERC-20 instead of the
+   * native asset (the announcement is unchanged); `gasDrop` optionally tops the stealth address up
+   * with native gas so the recipient can move the token without a relayer.
    * Requires the chain's signer (`solanaWallet` / `ethereumWalletClient` or `ethereumProvider`).
    */
   async sendStealthPayment(
     params: SendStealthPaymentParams,
   ): Promise<SendStealthPaymentResult> {
-    if (params.token) {
-      throw new Error(
-        "Opaque: token (SPL/ERC-20) stealth sends are not yet supported; send the native asset.",
-      );
-    }
     const metaAddressHex = await this.resolveSendRecipientMeta(
       params.chain,
       params.recipient,
@@ -1201,11 +1230,37 @@ export class OpaqueClient {
       const wallet = this.requireSolanaWallet();
       const adapter = this.getSolanaAdapter();
       const destination = deriveStealthSolanaAddress(send.stealthPubKey);
-      const transferIx = SystemProgram.transfer({
-        fromPubkey: wallet.publicKey,
-        toPubkey: new PublicKey(destination),
-        lamports: params.amount,
-      });
+      const transferIxs: TransactionInstruction[] = [];
+      if (params.token) {
+        const decimals = await resolveMintDecimals(adapter.connection, params.token);
+        transferIxs.push(
+          ...buildSplTransferInstructions({
+            payer: wallet.publicKey,
+            sourceOwner: wallet.publicKey,
+            destinationOwner: destination,
+            mint: params.token,
+            amount: params.amount,
+            decimals,
+          }),
+        );
+        if (params.gasDrop != null && params.gasDrop > 0n) {
+          transferIxs.push(
+            SystemProgram.transfer({
+              fromPubkey: wallet.publicKey,
+              toPubkey: new PublicKey(destination),
+              lamports: params.gasDrop,
+            }),
+          );
+        }
+      } else {
+        transferIxs.push(
+          SystemProgram.transfer({
+            fromPubkey: wallet.publicKey,
+            toPubkey: new PublicKey(destination),
+            lamports: params.amount,
+          }),
+        );
+      }
       const buildAnnounceIxs = async (): Promise<{
         ixs: TransactionInstruction[];
         signers: Keypair[];
@@ -1238,7 +1293,7 @@ export class OpaqueClient {
       };
       const wantsAnyAnnounce = params.relay || wantAnnounce;
       if (params.delayAnnouncement != null && wantsAnyAnnounce) {
-        const txHash = await this.sendSolanaTx([transferIx]);
+        const txHash = await this.sendSolanaTx(transferIxs);
         const announcePromise = (async () => {
           await sleep(params.delayAnnouncement!);
           const { ixs, signers } = await buildAnnounceIxs();
@@ -1254,7 +1309,7 @@ export class OpaqueClient {
           metaAddressHex,
         };
       }
-      const ixs: TransactionInstruction[] = [transferIx];
+      const ixs: TransactionInstruction[] = [...transferIxs];
       const extraSigners: Keypair[] = [];
       if (wantsAnyAnnounce) {
         const announce = await buildAnnounceIxs();
@@ -1279,12 +1334,34 @@ export class OpaqueClient {
         Account | undefined
       >;
       const viemChain = wc.chain ?? this.viemChain();
-      const txHash = await wc.sendTransaction({
-        account: this.config.ethereumAddress,
-        chain: viemChain,
-        to: send.stealthAddress,
-        value: params.amount,
-      });
+      let txHash: string;
+      if (params.token) {
+        if (params.gasDrop != null && params.gasDrop > 0n) {
+          await wc.sendTransaction({
+            account: this.config.ethereumAddress,
+            chain: viemChain,
+            to: send.stealthAddress,
+            value: params.gasDrop,
+          });
+        }
+        txHash = await wc.sendTransaction({
+          account: this.config.ethereumAddress,
+          chain: viemChain,
+          to: getAddress(params.token),
+          data: encodeFunctionData({
+            abi: erc20SweepAbi,
+            functionName: "transfer",
+            args: [send.stealthAddress, params.amount],
+          }),
+        });
+      } else {
+        txHash = await wc.sendTransaction({
+          account: this.config.ethereumAddress,
+          chain: viemChain,
+          to: send.stealthAddress,
+          value: params.amount,
+        });
+      }
       const submitAnnounce = async (): Promise<string> => {
         if (params.relay) {
           const req = await this.buildAnnounceWithRelayRequest(send);
@@ -1743,25 +1820,50 @@ export class OpaqueClient {
   }
 
   /**
-   * Sweep the full native balance of an owned stealth output to `destination`, signed by the
-   * reconstructed one-time key (the on-chain `from` is the stealth address itself). Works for
-   * Ethereum (ETH) and Solana (SOL); `"solana"` requires {@link OpaqueClientConfig.solana}.
+   * Sweep an owned stealth output to `destination`, signed by the reconstructed one-time key (the
+   * on-chain `from` is the stealth address itself). Sweeps the full native balance, or the full
+   * balance of `token` (ERC-20 address / SPL mint) when set. Works for Ethereum and Solana;
+   * `"solana"` requires {@link OpaqueClientConfig.solana}. An ERC-20 sweep needs the stealth address
+   * to hold native gas (see `gasDrop` on {@link sendStealthPayment}, or a relayer-sponsored sweep).
    */
   async sweep(params: {
     output: Pick<OwnedStealthOutput, "ephemeralPublicKey">;
     chain: OpaqueScanChain;
     destination: string;
+    /** ERC-20 address / SPL mint to sweep; omit for the native asset. */
+    token?: string;
+    /** Solana only: also close the emptied token account and reclaim its rent. */
+    closeAccount?: boolean;
   }): Promise<{ chain: OpaqueScanChain; tx: string }> {
     const stealthPrivKey = this.getStealthSignerPrivateKey(params.output);
     if (params.chain === "ethereum") {
-      const hash = await sweepStealthNative(this.publicClient, {
-        stealthPrivKey,
-        destination: getAddress(params.destination),
-        rpcUrl: this.config.rpcUrl,
-      });
+      const hash = params.token
+        ? await sweepEvmStealthToken(this.publicClient, {
+            stealthPrivKey,
+            token: getAddress(params.token),
+            destination: getAddress(params.destination),
+            rpcUrl: this.config.rpcUrl,
+          })
+        : await sweepStealthNative(this.publicClient, {
+            stealthPrivKey,
+            destination: getAddress(params.destination),
+            rpcUrl: this.config.rpcUrl,
+          });
       return { chain: "ethereum", tx: hash };
     }
     if (params.chain === "solana") {
+      if (params.token) {
+        const { signature } = await sweepSolanaStealthToken(
+          this.getSolanaAdapter().connection,
+          {
+            stealthPrivKey,
+            mint: params.token,
+            destinationOwner: params.destination,
+            closeAccount: params.closeAccount,
+          },
+        );
+        return { chain: "solana", tx: signature };
+      }
       const { signature } = await this.getSolanaAdapter().sweepStealthSol({
         stealthPrivKey,
         destination: params.destination,
@@ -1887,6 +1989,68 @@ export class OpaqueClient {
           address,
           nativeRaw: BigInt(lamports),
         });
+      }
+    }
+    return result;
+  }
+
+  /**
+   * Per-token balance for each owned stealth output, across chains. Ethereum reads ERC-20
+   * `balanceOf` at the stealth address; Solana reconstructs the one-time key (WASM), derives the
+   * stealth account, and reads its associated token account. Zero balances are omitted.
+   *
+   * `tokens.ethereum` defaults to the configured tracked ERC-20s ({@link OpaqueClientConfig.trackedTokens}
+   * minus the native sentinel); `tokens.solana` (SPL mints, base58) has no default and must be passed.
+   */
+  async getTokenBalancesForOutputs(
+    outputs: UnifiedOwnedOutput[],
+    tokens?: { ethereum?: Address[]; solana?: string[] },
+  ): Promise<OutputTokenBalance[]> {
+    const evmTokens =
+      tokens?.ethereum ??
+      this.tokens
+        .filter((t) => t.address.toLowerCase() !== NATIVE_TOKEN_ADDRESS.toLowerCase())
+        .map((t) => t.address);
+    const solanaMints = tokens?.solana ?? [];
+    const result: OutputTokenBalance[] = [];
+
+    for (const o of outputs) {
+      if (o.chain === "ethereum") {
+        const stealthAddress = getAddress(o.stealthAddress);
+        for (const token of evmTokens) {
+          const raw = (await this.publicClient.readContract({
+            address: token,
+            abi: ERC20_BALANCE_ABI,
+            functionName: "balanceOf",
+            args: [stealthAddress],
+          })) as bigint;
+          if (raw > 0n) {
+            result.push({
+              chain: "ethereum",
+              stealthAddress: o.stealthAddress,
+              address: stealthAddress,
+              token,
+              raw,
+            });
+          }
+        }
+      } else if (o.chain === "solana") {
+        if (solanaMints.length === 0) continue;
+        const stealthPrivKey = this.getStealthSignerPrivateKey(o);
+        const address = deriveStealthSolanaAddressFromStealthPrivKey(stealthPrivKey);
+        const connection = this.getSolanaAdapter().connection;
+        for (const mint of solanaMints) {
+          const raw = await getStealthTokenBalance(connection, { owner: address, mint });
+          if (raw > 0n) {
+            result.push({
+              chain: "solana",
+              stealthAddress: o.stealthAddress,
+              address,
+              token: mint,
+              raw,
+            });
+          }
+        }
       }
     }
     return result;
