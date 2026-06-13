@@ -9,7 +9,26 @@ import { existsSync, readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { Keypair, PublicKey, TransactionInstruction } from "@solana/web3.js";
+import { MINT_SIZE, MintLayout, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import type { Hex } from "viem";
+
+/** A minimal initialized SPL mint account so getMint() can resolve decimals offline. */
+function mintAccountInfo(decimals: number) {
+  const data = Buffer.alloc(MINT_SIZE);
+  MintLayout.encode(
+    {
+      mintAuthorityOption: 0,
+      mintAuthority: PublicKey.default,
+      supply: 0n,
+      decimals,
+      isInitialized: true,
+      freezeAuthorityOption: 0,
+      freezeAuthority: PublicKey.default,
+    },
+    data,
+  );
+  return { owner: TOKEN_PROGRAM_ID, data, lamports: 1, executable: false, rentEpoch: 0 };
+}
 
 const state = vi.hoisted(() => ({
   schemas: [] as unknown[],
@@ -424,11 +443,28 @@ describe("sends, registration, and UAB on Solana (stubbed adapter)", () => {
     expect(silent.txHash).toBe("stub-signature");
 
     await expect(
-      client.sendStealthPayment({ chain: "solana", recipient, amount: 1n, token: "x" }),
-    ).rejects.toThrow(/not yet supported/);
-    await expect(
       client.sendStealthPayment({ chain: "nope" as never, recipient, amount: 1n }),
     ).rejects.toThrow(/unrecognised recipient|unsupported/);
+  });
+
+  it("sendStealthPayment: SPL token send routes through the ATA path", async () => {
+    const client = await makeClient({ wasm: false });
+    const mint = Keypair.generate().publicKey.toBase58();
+    const adapter = stubAdapter({
+      connection: stubConnection({ getAccountInfo: async () => mintAccountInfo(6) }),
+    });
+    (client as unknown as { solanaAdapter: unknown }).solanaAdapter = adapter;
+    const recipient = generateRandomMetaAddress();
+
+    const sent = await client.sendStealthPayment({
+      chain: "solana",
+      recipient,
+      amount: 250_000n,
+      token: mint,
+    });
+    expect(sent.txHash).toBe("stub-signature");
+    expect(sent.destination).toBeDefined();
+    expect(adapter.buildAnnounceInstruction).toHaveBeenCalled();
   });
 
   it("registerMetaAddress + isMetaAddressRegistered on both chains", async () => {

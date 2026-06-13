@@ -5,7 +5,11 @@
  */
 import { describe, it, expect } from "vitest";
 import { Connection, PublicKey } from "@solana/web3.js";
-import { OpaqueClient } from "@opaquecash/opaque";
+import {
+  OpaqueClient,
+  deriveKeysFromSignature,
+  keysToStealthMetaAddress,
+} from "@opaquecash/opaque";
 
 const DEVNET_ANNOUNCER = "HGFn2fH7bVQ5cSuiG52NjzN9m11YrB3FZUfoN9b9A5jf";
 const WORMHOLE_CORE = "3u8hJUVTA4jH1wYAyUur7FFZVQ8H635K3tSHHF4ssjQ5";
@@ -149,15 +153,32 @@ describe("OpaqueClient.submitReputationVerification", () => {
 });
 
 describe("OpaqueClient.sendStealthPayment (offline)", () => {
-  it("rejects token sends (native only)", async () => {
-    const client = await OpaqueClient.create({
-      ...baseConfig,
-      solana: { connection: emptyConnection() },
-    });
+  it("sends an ERC-20 to the stealth address as transfer calldata", async () => {
+    const client = await OpaqueClient.create(baseConfig);
+    const calls: Array<{ to?: string; data?: string; value?: bigint }> = [];
+    (client as unknown as { evmWalletClientCache: unknown }).evmWalletClientCache = {
+      chain: undefined,
+      account: undefined,
+      sendTransaction: async (tx: { to?: string; data?: string; value?: bigint }) => {
+        calls.push(tx);
+        return "0xsent";
+      },
+    };
     const meta = client.getMetaAddressHex();
-    await expect(
-      client.sendStealthPayment({ chain: "solana", recipient: meta, amount: 1n, token: "X" }),
-    ).rejects.toThrow(/token/);
+    const token = "0x73197e8303904862d543f9706E8422F634D713cb";
+    const res = await client.sendStealthPayment({
+      chain: "ethereum",
+      recipient: meta,
+      amount: 1_000_000n,
+      token,
+      announce: false,
+    });
+    expect(res.txHash).toBe("0xsent");
+    expect(calls).toHaveLength(1);
+    expect(calls[0].to?.toLowerCase()).toBe(token.toLowerCase());
+    // ERC-20 transfer(address,uint256) selector; no native value.
+    expect(calls[0].data?.startsWith("0xa9059cbb")).toBe(true);
+    expect(calls[0].value).toBeUndefined();
   });
 
   it("requires a Solana wallet for the Solana path", async () => {
@@ -221,5 +242,38 @@ describe("OpaqueClient.scan / balances (offline wiring)", () => {
       solana: { connection: emptyConnection() },
     });
     expect(await client.getBalancesForOutputs([])).toEqual([]);
+  });
+});
+
+describe("OpaqueClient.createViewOnly", () => {
+  const output = { ephemeralPublicKey: ("0x02" + "11".repeat(32)) as `0x${string}` };
+
+  it("reconstructs the same meta-address but cannot spend", async () => {
+    const full = await OpaqueClient.create(baseConfig);
+    const { viewingKey, spendingKey } = deriveKeysFromSignature(baseConfig.walletSignature);
+    const { S } = keysToStealthMetaAddress(viewingKey, spendingKey);
+
+    const viewer = await OpaqueClient.createViewOnly(
+      {
+        chainId: baseConfig.chainId,
+        rpcUrl: baseConfig.rpcUrl,
+        ethereumAddress: baseConfig.ethereumAddress,
+      },
+      { viewingKey, spendPublicKey: S },
+    );
+
+    expect(viewer.isViewOnly).toBe(true);
+    expect(full.isViewOnly).toBe(false);
+    // V is derived from v, S is passed through: the view-only meta-address matches the full one.
+    expect(viewer.getMetaAddressHex()).toBe(full.getMetaAddressHex());
+
+    expect(() => viewer.getStealthSignerPrivateKey(output)).toThrow(/view-only/);
+    await expect(
+      viewer.sweep({
+        output,
+        chain: "ethereum",
+        destination: baseConfig.ethereumAddress,
+      }),
+    ).rejects.toThrow(/view-only/);
   });
 });

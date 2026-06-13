@@ -160,6 +160,7 @@ export {
   ephemeralPrivateKeyToCompressedPublicKey,
   stealthMetaAddressToHex,
   keysToStealthMetaAddress,
+  viewOnlyMetaAddress,
   parseStealthMetaAddress,
 } from "./crypto/dksap.js";
 
