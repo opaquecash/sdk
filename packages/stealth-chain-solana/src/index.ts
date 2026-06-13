@@ -59,6 +59,16 @@ export {
 } from "./sweep.js";
 
 export {
+  type StealthTokenSweepPlan,
+  stealthTokenAccount,
+  getStealthTokenBalance,
+  buildSplTransferInstructions,
+  resolveMintDecimals,
+  buildStealthTokenSweepTransaction,
+  sweepStealthToken,
+} from "./token.js";
+
+export {
   type AnnounceWithRelayInstructionParams,
   type AnnounceWithRelayBuild,
   deriveWormholeEmitterPda,

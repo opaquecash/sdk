@@ -45,3 +45,11 @@ export {
   planStealthSweep,
   sweepStealthNative,
 } from "./sweep.js";
+
+export {
+  erc20SweepAbi,
+  type TokenSweepFees,
+  type EvmStealthTokenSweepPlan,
+  planStealthTokenSweep,
+  sweepStealthToken,
+} from "./token-sweep.js";
