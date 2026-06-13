@@ -53,6 +53,24 @@ export function stealthMetaAddressToHex(metaAddress: Uint8Array): Hex {
 }
 
 /**
+ * Build the 66-byte meta-address for view-only delegation (CSAP §2.8): the scanner holds the
+ * viewing PRIVATE key `v` and the spending PUBLIC key `S`, never the spending private key. The
+ * viewing public key `V = v·G` is derived here; the result `V‖S` matches
+ * {@link keysToStealthMetaAddress}.
+ */
+export function viewOnlyMetaAddress(
+  viewingKey: Uint8Array,
+  spendPubKey: Uint8Array,
+): { V: Uint8Array; S: Uint8Array; metaAddress: Uint8Array } {
+  assertCompressedPubkey33("spendPubKey", spendPubKey);
+  const V = CURVE.getPublicKey(viewingKey, true);
+  const metaAddress = new Uint8Array(V.length + spendPubKey.length);
+  metaAddress.set(V, 0);
+  metaAddress.set(spendPubKey, V.length);
+  return { V, S: spendPubKey, metaAddress };
+}
+
+/**
  * A fresh random 66-byte meta-address from two throwaway private keys. The keys are
  * discarded — nobody can ever scan for or spend from announcements made to it. Used by
  * the anonymity-set utilities to mint decoy recipients (guide §17).

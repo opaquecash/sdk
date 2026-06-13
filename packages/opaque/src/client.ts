@@ -158,6 +158,7 @@ import {
   deriveKeysFromSignature,
   keysToStealthMetaAddress,
   stealthMetaAddressToHex,
+  viewOnlyMetaAddress,
   computeStealthAddressAndViewTag,
   recomputeStealthSendFromEphemeralPrivateKey,
   ephemeralPrivateKeyToCompressedPublicKey,
@@ -629,7 +630,8 @@ export class OpaqueClient {
   private readonly reputationVerifier?: Address;
   private readonly tokens: TrackedToken[];
   private readonly viewingKey: Uint8Array;
-  private readonly spendingKey: Uint8Array;
+  /** Spending private key. Undefined for a view-only client (scan-only, cannot spend). */
+  private readonly spendingKey?: Uint8Array;
   private readonly spendPubKey: Uint8Array;
   private readonly metaAddressHex: Hex;
   private readonly publicClient: PublicClient;
@@ -648,7 +650,7 @@ export class OpaqueClient {
     wasm: StealthWasmModule,
     keys: {
       viewingKey: Uint8Array;
-      spendingKey: Uint8Array;
+      spendingKey?: Uint8Array;
       spendPubKey: Uint8Array;
       metaAddressHex: Hex;
     },
@@ -704,6 +706,57 @@ export class OpaqueClient {
         metaAddressHex,
       },
     );
+  }
+
+  /**
+   * Construct a view-only client (CSAP §2.8 watch-only delegation) from the viewing PRIVATE key and
+   * the spending PUBLIC key. It can {@link scan}, {@link filterOwnedAnnouncements}, and read
+   * balances, but cannot spend: {@link sweep}, {@link getStealthSignerPrivateKey}, and reputation
+   * key reconstruction throw. This is the safe shape for a server-side scanner — a compromised
+   * server can read the inbox but can never move funds. Never give a server the spending key.
+   *
+   * `config` omits `walletSignature` since no keys are derived here. Pass keys as `0x` hex or bytes.
+   */
+  static async createViewOnly(
+    config: Omit<OpaqueClientConfig, "walletSignature">,
+    keys: { viewingKey: Hex | Uint8Array; spendPublicKey: Hex | Uint8Array },
+  ): Promise<OpaqueClient> {
+    const deployment = requireChainDeployment(config.chainId);
+    const wasm = config.wasmModuleSpecifier
+      ? await initStealthWasm({ moduleSpecifier: config.wasmModuleSpecifier })
+      : wasmUnavailable();
+    const viewingKey =
+      typeof keys.viewingKey === "string" ? hexToBytes(keys.viewingKey) : keys.viewingKey;
+    const spendPubKey =
+      typeof keys.spendPublicKey === "string"
+        ? hexToBytes(keys.spendPublicKey)
+        : keys.spendPublicKey;
+    const { metaAddress } = viewOnlyMetaAddress(viewingKey, spendPubKey);
+    return new OpaqueClient(
+      { ...config, walletSignature: "0x" as Hex },
+      deployment,
+      wasm,
+      {
+        viewingKey,
+        spendPubKey,
+        metaAddressHex: stealthMetaAddressToHex(metaAddress),
+      },
+    );
+  }
+
+  /** True for a {@link createViewOnly} client: scanning works, spending/sweeping throws. */
+  get isViewOnly(): boolean {
+    return this.spendingKey === undefined;
+  }
+
+  private requireSpendingKey(): Uint8Array {
+    if (!this.spendingKey) {
+      throw new Error(
+        "Opaque: view-only client has no spending key; it can scan but cannot spend or sweep. " +
+          "Use create() / fromWallet() with the spending key to move funds.",
+      );
+    }
+    return this.spendingKey;
   }
 
   /**
@@ -1892,7 +1945,7 @@ export class OpaqueClient {
     }
     return reconstructSigningKey(
       this.wasm,
-      this.spendingKey,
+      this.requireSpendingKey(),
       this.viewingKey,
       ephemeralPubkeyBytes,
     );
@@ -1910,7 +1963,7 @@ export class OpaqueClient {
       ephemeralPrivateKeyToCompressedPublicKey(ephemeralPrivateKey);
     return reconstructSigningKey(
       this.wasm,
-      this.spendingKey,
+      this.requireSpendingKey(),
       this.viewingKey,
       ephemeralPubkeyBytes,
     );
