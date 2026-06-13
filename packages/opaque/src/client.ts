@@ -17,6 +17,7 @@ import {
   hexToBytes,
   keccak256,
 } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
 import { sepolia } from "viem/chains";
 import {
   Connection,
@@ -35,6 +36,12 @@ import {
   erc20SweepAbi,
   sweepStealthNative,
   sweepStealthToken as sweepEvmStealthToken,
+  stealthTokenSweepAbi,
+  signStealthSweepAuthorization,
+  signStealthTokenPermit,
+  encodeSweepWithPermit,
+  type StealthSweepAuthorization,
+  type StealthPermitSignature,
 } from "@opaquecash/stealth-chain";
 import {
   SolanaAdapter,
@@ -51,6 +58,7 @@ import {
   resolveMintDecimals,
   getStealthTokenBalance,
   sweepStealthToken as sweepSolanaStealthToken,
+  buildStealthTokenSweepTransaction,
   type OnsClaimStatus,
 } from "@opaquecash/stealth-chain-solana";
 import { getEvmDeployment, getOnsDeployment } from "@opaquecash/deployments";
@@ -213,6 +221,18 @@ const ERC20_BALANCE_ABI = [
   },
 ] as const;
 
+/** ERC-20 reads needed to build an EIP-2612 permit (token name + per-owner permit nonce). */
+const ERC20_PERMIT_READ_ABI = [
+  { type: "function", name: "name", stateMutability: "view", inputs: [], outputs: [{ type: "string" }] },
+  {
+    type: "function",
+    name: "nonces",
+    stateMutability: "view",
+    inputs: [{ name: "owner", type: "address" }],
+    outputs: [{ type: "uint256" }],
+  },
+] as const;
+
 /**
  * Configuration for {@link OpaqueClient.create}.
  */
@@ -251,6 +271,8 @@ export interface OpaqueClientConfig {
     uabSender: Address;
     uabReceiver: Address;
     wormholeCore: Address;
+    /** Gasless ERC-20 sweep forwarder (spec/relayer-market.md). */
+    stealthTokenSweep: Address;
   }>;
   /**
    * Solana access for the unified {@link OpaqueClient.scan} inbox. Optional: only needed when
@@ -504,6 +526,32 @@ export interface OutputTokenBalance {
   /** Balance in the token's smallest unit. */
   raw: bigint;
 }
+
+/** A relayer-submittable EVM gasless sweep: any relayer sends `data` to `to` and earns the fee. */
+export interface EvmGaslessSweep {
+  chain: "ethereum";
+  /** Forwarder address to call. */
+  to: Address;
+  /** `sweepWithPermit` calldata (owner-signed authorization + EIP-2612 permit). */
+  data: Hex;
+  authorization: StealthSweepAuthorization;
+  ownerSig: Hex;
+  permit: StealthPermitSignature;
+}
+
+/** A relayer-submittable Solana gasless sweep: the relayer co-signs as fee payer and submits. */
+export interface SolanaGaslessSweep {
+  chain: "solana";
+  /** Base64 transaction, partially signed by the stealth key; the relayer signs as fee payer. */
+  transactionBase64: string;
+  /** Relayer fee payer the transaction was built for. */
+  feePayer: string;
+  /** Token amount being swept (full balance, raw units). */
+  amount: bigint;
+}
+
+/** Discriminated result of {@link OpaqueClient.buildGaslessTokenSweep}. */
+export type GaslessSweep = EvmGaslessSweep | SolanaGaslessSweep;
 
 /** A cross-chain `announceWithRelay` built for Ethereum (submit `{to,data,value}` via wallet). */
 export interface EvmAnnounceWithRelayResult {
@@ -1922,6 +1970,143 @@ export class OpaqueClient {
         destination: params.destination,
       });
       return { chain: "solana", tx: signature };
+    }
+    throw new Error(`Opaque: unsupported sweep chain "${params.chain as string}"`);
+  }
+
+  /**
+   * Build a relayer-submittable gasless token sweep (spec/relayer-market.md, fee-in-token). The
+   * reconstructed stealth key authorizes the move offline (no native gas needed); a relayer submits
+   * it, pays the gas, and takes `fee` in the token. Ethereum returns `sweepWithPermit` calldata for
+   * the `StealthTokenSweep` forwarder; Solana returns a transaction partially signed by the stealth
+   * key that the relayer co-signs as fee payer. EVM chain reads (balance, token name, permit and
+   * forwarder nonces) are auto-resolved unless overridden.
+   */
+  async buildGaslessTokenSweep(params: {
+    output: Pick<OwnedStealthOutput, "ephemeralPublicKey">;
+    chain: OpaqueScanChain;
+    /** ERC-20 address (Ethereum) or SPL mint (Solana base58). */
+    token: string;
+    /** Recipient: an address (Ethereum) or token-account owner (Solana). */
+    destination: string;
+    /** Relayer fee, taken from the swept amount in the token's smallest unit. */
+    fee: bigint;
+    /** Unix-seconds authorization deadline. */
+    deadline: bigint;
+    /** EVM forwarder override; defaults to the configured / deployed `stealthTokenSweep`. */
+    forwarder?: Address;
+    /** EVM amount to sweep; defaults to the full token balance. */
+    value?: bigint;
+    /** EVM token EIP-712 domain name; defaults to the on-chain `name()`. */
+    tokenName?: string;
+    /** EVM token EIP-712 domain version; defaults to `"1"`. */
+    tokenVersion?: string;
+    /** Solana relayer fee payer (base58); required for the Solana path. */
+    feePayer?: string;
+    /** Solana: also close the emptied token account and return its rent to the fee payer. */
+    closeAccount?: boolean;
+  }): Promise<GaslessSweep> {
+    const stealthPrivKey = this.getStealthSignerPrivateKey(params.output);
+
+    if (params.chain === "ethereum") {
+      const forwarder =
+        params.forwarder ??
+        this.config.contracts?.stealthTokenSweep ??
+        this.deployment.stealthTokenSweep;
+      if (!forwarder) {
+        throw new Error(
+          "Opaque: no StealthTokenSweep forwarder configured for this chain; pass `forwarder`.",
+        );
+      }
+      const token = getAddress(params.token);
+      const owner = privateKeyToAccount(`0x${bytesToHex(stealthPrivKey)}` as Hex).address;
+
+      const value =
+        params.value ??
+        ((await this.publicClient.readContract({
+          address: token,
+          abi: ERC20_BALANCE_ABI,
+          functionName: "balanceOf",
+          args: [owner],
+        })) as bigint);
+      if (value === 0n) throw new Error("Opaque: stealth address holds none of this token.");
+
+      const tokenName =
+        params.tokenName ??
+        ((await this.publicClient.readContract({
+          address: token,
+          abi: ERC20_PERMIT_READ_ABI,
+          functionName: "name",
+        })) as string);
+      const permitNonce = (await this.publicClient.readContract({
+        address: token,
+        abi: ERC20_PERMIT_READ_ABI,
+        functionName: "nonces",
+        args: [owner],
+      })) as bigint;
+      const sweepNonce = (await this.publicClient.readContract({
+        address: forwarder,
+        abi: stealthTokenSweepAbi,
+        functionName: "nonces",
+        args: [owner],
+      })) as bigint;
+
+      const { ownerSig, authorization } = await signStealthSweepAuthorization({
+        stealthPrivKey,
+        forwarder,
+        chainId: this.config.chainId,
+        authorization: {
+          token,
+          destination: getAddress(params.destination),
+          value,
+          fee: params.fee,
+          nonce: sweepNonce,
+          deadline: params.deadline,
+        },
+      });
+      const permit = await signStealthTokenPermit({
+        stealthPrivKey,
+        token,
+        chainId: this.config.chainId,
+        spender: forwarder,
+        value,
+        nonce: permitNonce,
+        deadline: params.deadline,
+        tokenName,
+        tokenVersion: params.tokenVersion,
+      });
+
+      return {
+        chain: "ethereum",
+        to: forwarder,
+        data: encodeSweepWithPermit(authorization, ownerSig, permit),
+        authorization,
+        ownerSig,
+        permit,
+      };
+    }
+
+    if (params.chain === "solana") {
+      if (!params.feePayer) {
+        throw new Error("Opaque: a Solana gasless sweep requires `feePayer` (the relayer pubkey).");
+      }
+      const plan = await buildStealthTokenSweepTransaction(this.getSolanaAdapter().connection, {
+        stealthPrivKey,
+        mint: params.token,
+        destinationOwner: params.destination,
+        feePayer: params.feePayer,
+        closeAccount: params.closeAccount,
+      });
+      plan.transaction.partialSign(plan.stealthKeypair);
+      const transactionBase64 = plan.transaction
+        .serialize({ requireAllSignatures: false })
+        .toString("base64");
+      return {
+        chain: "solana",
+        transactionBase64,
+        feePayer: params.feePayer,
+        amount: plan.amount,
+      };
     }
     throw new Error(`Opaque: unsupported sweep chain "${params.chain as string}"`);
   }

@@ -38,6 +38,11 @@ export interface EvmContracts {
   disclosureVerifier: EvmAddress;
   /** Wormhole Core Bridge (external well-known contract). */
   wormholeCore: EvmAddress;
+  /**
+   * Gasless ERC-20 sweep forwarder (spec/relayer-market.md, fee-in-token). Optional: present only
+   * on chains where it has been deployed.
+   */
+  stealthTokenSweep?: EvmAddress;
 }
 
 /** One EVM chain's Opaque deployment record. */

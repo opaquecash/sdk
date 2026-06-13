@@ -20,6 +20,8 @@ export interface OpaqueChainDeployment {
   stealthAddressAnnouncer: Address;
   /** Optional PSR verifier; omitted if not deployed. */
   opaqueReputationVerifier?: Address;
+  /** Optional gasless ERC-20 sweep forwarder; omitted if not deployed. */
+  stealthTokenSweep?: Address;
   /** Default tokens merged with `OpaqueClientConfig.trackedTokens`. */
   defaultTrackedTokens: TrackedToken[];
 }
@@ -33,6 +35,7 @@ function fromGenerated(d: EvmDeployment): OpaqueChainDeployment {
     stealthAddressAnnouncer: d.contracts.stealthAddressAnnouncer,
     // V2 verifier is canonical (D3); the V1 verifier used an incompatible signal layout.
     opaqueReputationVerifier: d.contracts.opaqueReputationVerifierV2,
+    stealthTokenSweep: d.contracts.stealthTokenSweep,
     defaultTrackedTokens: d.tokens.map((t) => ({
       address: t.address,
       symbol: t.symbol,

@@ -65,3 +65,5 @@ export {
   type SubmitGasPrivateOptions,
   type SubmitGasPrivateResult,
 } from "./client.js";
+
+export { evmGaslessSweepRequest, submitSolanaGaslessSweep } from "./sweep.js";

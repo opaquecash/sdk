@@ -53,3 +53,13 @@ export {
   planStealthTokenSweep,
   sweepStealthToken,
 } from "./token-sweep.js";
+
+export {
+  stealthTokenSweepAbi,
+  type StealthSweepAuthorization,
+  type StealthPermitSignature,
+  signStealthSweepAuthorization,
+  signStealthTokenPermit,
+  encodeSweepWithPermit,
+  encodeSweep,
+} from "./gasless-sweep.js";
