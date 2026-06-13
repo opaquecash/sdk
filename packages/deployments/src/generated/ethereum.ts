@@ -17,6 +17,7 @@ export const EVM_DEPLOYMENTS: Record<number, EvmDeployment> = {
       uabSender: "0x872787c0BD1A0C71e6D1be5a144EB044e0CB2069",
       uabReceiver: "0x9eF189f7a263F870Cf80f9A89d1349A6AF7b15cF",
       relayerRegistry: "0x5fA252e2D22058a4ec3420573a3B3A5dca025837",
+      stealthTokenSweep: "0xdb8103231c8b2488Faf00427Cb1241bbe62A1410",
       opaquePrivacyPool: "0x49a5bB6d079a43d50596069b4F2632005CFe729E",
       withdrawalVerifier: "0xa1add9daa1F4D0f9190c13fb9AD52e525f4726b5",
       opaqueDisclosureRegistry: "0x4449DD0A94Fa6cd9C0074F3ee17b8823d6ceDD21",
