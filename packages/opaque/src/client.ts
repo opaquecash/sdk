@@ -233,6 +233,26 @@ const ERC20_PERMIT_READ_ABI = [
   },
 ] as const;
 
+// ERC-5267: tokens expose their EIP-712 domain, letting us read the permit `version`
+// instead of guessing (USDC is "2"; most OpenZeppelin tokens are "1").
+const ERC5267_ABI = [
+  {
+    type: "function",
+    name: "eip712Domain",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [
+      { name: "fields", type: "bytes1" },
+      { name: "name", type: "string" },
+      { name: "version", type: "string" },
+      { name: "chainId", type: "uint256" },
+      { name: "verifyingContract", type: "address" },
+      { name: "salt", type: "bytes32" },
+      { name: "extensions", type: "uint256[]" },
+    ],
+  },
+] as const;
+
 /**
  * Configuration for {@link OpaqueClient.create}.
  */
@@ -2003,7 +2023,7 @@ export class OpaqueClient {
     value?: bigint;
     /** EVM token EIP-712 domain name; defaults to the on-chain `name()`. */
     tokenName?: string;
-    /** EVM token EIP-712 domain version; defaults to `"1"`. */
+    /** EVM token EIP-712 domain version; defaults to the ERC-5267 `eip712Domain()` read, then `"1"`. */
     tokenVersion?: string;
     /** Solana relayer fee payer (base58); required for the Solana path. */
     feePayer?: string;
@@ -2042,6 +2062,22 @@ export class OpaqueClient {
           abi: ERC20_PERMIT_READ_ABI,
           functionName: "name",
         })) as string);
+      // Read the permit domain version via ERC-5267 when the caller didn't pin one:
+      // guessing wrong (USDC is "2", the default heuristic "1") makes every permit
+      // recover to the wrong signer and the sweep revert.
+      let tokenVersion = params.tokenVersion;
+      if (tokenVersion === undefined) {
+        try {
+          const domain = (await this.publicClient.readContract({
+            address: token,
+            abi: ERC5267_ABI,
+            functionName: "eip712Domain",
+          })) as readonly [string, string, string, bigint, string, string, readonly bigint[]];
+          tokenVersion = domain[2];
+        } catch {
+          // Pre-5267 token: fall through to signStealthTokenPermit's "1" default.
+        }
+      }
       const permitNonce = (await this.publicClient.readContract({
         address: token,
         abi: ERC20_PERMIT_READ_ABI,
@@ -2077,7 +2113,7 @@ export class OpaqueClient {
         nonce: permitNonce,
         deadline: params.deadline,
         tokenName,
-        tokenVersion: params.tokenVersion,
+        tokenVersion,
       });
 
       return {
