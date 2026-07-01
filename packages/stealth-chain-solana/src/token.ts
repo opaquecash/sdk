@@ -151,7 +151,14 @@ export interface StealthTokenSweepPlan {
   feePayer: PublicKey;
   mint: PublicKey;
   destinationOwner: PublicKey;
+  /** Total balance swept from the stealth ATA (`destinationAmount + fee`). */
   amount: bigint;
+  /** In-token relayer fee routed to `feeRecipientOwner`'s ATA (0 when none). */
+  fee: bigint;
+  /** Amount delivered to the destination (`amount - fee`). */
+  destinationAmount: bigint;
+  /** Owner of the ATA that receives `fee` (the relayer); equals `feePayer` when unset. */
+  feeRecipientOwner: PublicKey;
 }
 
 /**
@@ -161,6 +168,11 @@ export interface StealthTokenSweepPlan {
  * When `feePayer` is supplied and differs from the stealth account, that account pays the network
  * fee (gasless sweep: the relayer co-signs as fee payer); otherwise the stealth account pays. With
  * `closeAccount`, the now-empty source ATA is closed and its rent returned to the fee payer.
+ *
+ * For a fee-in-token gasless sweep, pass `fee` (raw units) and optionally `feeRecipientOwner` (the
+ * relayer's token-account owner; defaults to `feePayer`): the destination then receives
+ * `amount - fee` and the relayer's ATA receives `fee` in the same signed transaction, so the
+ * relayer is reimbursed in-token for the gas it fronts. `fee` MUST be `< amount`.
  */
 export async function buildStealthTokenSweepTransaction(
   connection: Connection,
@@ -169,6 +181,10 @@ export async function buildStealthTokenSweepTransaction(
     mint: PublicKey | string;
     destinationOwner: PublicKey | string;
     feePayer?: PublicKey | string;
+    /** In-token relayer fee (raw units) split to `feeRecipientOwner`; must be `< amount`. */
+    fee?: bigint;
+    /** Owner of the ATA that receives `fee`; defaults to `feePayer` (the relayer). */
+    feeRecipientOwner?: PublicKey | string;
     decimals?: number;
     closeAccount?: boolean;
     tokenProgramId?: PublicKey;
@@ -182,6 +198,9 @@ export async function buildStealthTokenSweepTransaction(
   const feePayer = params.feePayer ? toPubkey(params.feePayer) : owner;
   const mint = toPubkey(params.mint);
   const destinationOwner = toPubkey(params.destinationOwner);
+  const feeRecipientOwner = params.feeRecipientOwner
+    ? toPubkey(params.feeRecipientOwner)
+    : feePayer;
 
   const amount = await getStealthTokenBalance(connection, {
     owner,
@@ -192,6 +211,16 @@ export async function buildStealthTokenSweepTransaction(
   if (amount <= 0n) {
     throw new Error("Stealth account holds none of this token.");
   }
+
+  const fee = params.fee ?? 0n;
+  if (fee < 0n) {
+    throw new Error("Sweep fee cannot be negative.");
+  }
+  if (fee >= amount) {
+    throw new Error("Sweep fee must be less than the swept amount.");
+  }
+  const destinationAmount = amount - fee;
+
   const decimals =
     params.decimals ?? (await resolveMintDecimals(connection, mint, tokenProgramId));
 
@@ -200,10 +229,25 @@ export async function buildStealthTokenSweepTransaction(
     sourceOwner: owner,
     destinationOwner,
     mint,
-    amount,
+    amount: destinationAmount,
     decimals,
     tokenProgramId,
   });
+
+  // Fee-in-token: reimburse the relayer's ATA in the same signed transaction.
+  if (fee > 0n) {
+    instructions.push(
+      ...buildSplTransferInstructions({
+        payer: feePayer,
+        sourceOwner: owner,
+        destinationOwner: feeRecipientOwner,
+        mint,
+        amount: fee,
+        decimals,
+        tokenProgramId,
+      }),
+    );
+  }
 
   if (params.closeAccount) {
     const source = getAssociatedTokenAddressSync(
@@ -223,7 +267,17 @@ export async function buildStealthTokenSweepTransaction(
     ...instructions,
   );
 
-  return { transaction, stealthKeypair, feePayer, mint, destinationOwner, amount };
+  return {
+    transaction,
+    stealthKeypair,
+    feePayer,
+    mint,
+    destinationOwner,
+    amount,
+    fee,
+    destinationAmount,
+    feeRecipientOwner,
+  };
 }
 
 /**

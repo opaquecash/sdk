@@ -548,6 +548,10 @@ export interface SolanaGaslessSweep {
   feePayer: string;
   /** Token amount being swept (full balance, raw units). */
   amount: bigint;
+  /** In-token relayer fee routed to the fee payer's ATA (raw units, `0n` when none). */
+  fee: bigint;
+  /** Amount delivered to the destination (`amount - fee`, raw units). */
+  destinationAmount: bigint;
 }
 
 /** Discriminated result of {@link OpaqueClient.buildGaslessTokenSweep}. */
@@ -2095,6 +2099,8 @@ export class OpaqueClient {
         mint: params.token,
         destinationOwner: params.destination,
         feePayer: params.feePayer,
+        // The relayer (fee payer) is reimbursed the in-token fee at its own ATA.
+        fee: params.fee,
         closeAccount: params.closeAccount,
       });
       plan.transaction.partialSign(plan.stealthKeypair);
@@ -2106,6 +2112,8 @@ export class OpaqueClient {
         transactionBase64,
         feePayer: params.feePayer,
         amount: plan.amount,
+        fee: plan.fee,
+        destinationAmount: plan.destinationAmount,
       };
     }
     throw new Error(`Opaque: unsupported sweep chain "${params.chain as string}"`);

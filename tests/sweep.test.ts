@@ -2,8 +2,10 @@ import { describe, it, expect } from "vitest";
 import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import type { Address, PublicClient } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
+import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import {
   buildStealthSweepTransaction,
+  buildStealthTokenSweepTransaction,
   deriveStealthSolanaKeypairFromStealthPrivKey,
 } from "@opaquecash/stealth-chain-solana";
 import { planStealthSweep } from "@opaquecash/stealth-chain";
@@ -67,6 +69,74 @@ describe("Solana sweep", () => {
     await expect(
       buildStealthSweepTransaction(solConn(), { destination: dest } as never),
     ).rejects.toThrow(/stealthKeypair or stealthPrivKey/);
+  });
+});
+
+describe("Solana token sweep (fee-in-token)", () => {
+  const mint = Keypair.generate().publicKey;
+  const dest = Keypair.generate().publicKey;
+  const relayer = Keypair.generate().publicKey;
+  const stealthPrivKey = Uint8Array.from(Array(32).fill(3));
+
+  // A minimal 165-byte SPL token account holding `amount`, owned by the token program.
+  function tokenConn(amount: bigint): Connection {
+    const data = Buffer.alloc(165);
+    data.writeBigUInt64LE(amount, 64); // amount field
+    data[108] = 1; // AccountState.Initialized
+    return {
+      getAccountInfo: async () => ({
+        owner: TOKEN_PROGRAM_ID,
+        data,
+        lamports: 1,
+        executable: false,
+        rentEpoch: 0,
+      }),
+      getLatestBlockhash: async () => ({ blockhash: BLOCKHASH, lastValidBlockHeight: 1 }),
+    } as unknown as Connection;
+  }
+
+  it("splits the fee to the relayer and the remainder to the destination", async () => {
+    const plan = await buildStealthTokenSweepTransaction(tokenConn(1_000_000n), {
+      stealthPrivKey,
+      mint,
+      destinationOwner: dest,
+      feePayer: relayer,
+      fee: 10_000n,
+      decimals: 6,
+    });
+    expect(plan.amount).toBe(1_000_000n);
+    expect(plan.fee).toBe(10_000n);
+    expect(plan.destinationAmount).toBe(990_000n);
+    expect(plan.feeRecipientOwner.toBase58()).toBe(relayer.toBase58());
+    expect(plan.feePayer.toBase58()).toBe(relayer.toBase58());
+    // create dest ATA + transfer to dest + create relayer ATA + transfer fee.
+    expect(plan.transaction.instructions).toHaveLength(4);
+  });
+
+  it("omits the fee transfer when fee is zero", async () => {
+    const plan = await buildStealthTokenSweepTransaction(tokenConn(1_000_000n), {
+      stealthPrivKey,
+      mint,
+      destinationOwner: dest,
+      feePayer: relayer,
+      decimals: 6,
+    });
+    expect(plan.fee).toBe(0n);
+    expect(plan.destinationAmount).toBe(1_000_000n);
+    expect(plan.transaction.instructions).toHaveLength(2);
+  });
+
+  it("rejects a fee that meets or exceeds the balance", async () => {
+    await expect(
+      buildStealthTokenSweepTransaction(tokenConn(1_000_000n), {
+        stealthPrivKey,
+        mint,
+        destinationOwner: dest,
+        feePayer: relayer,
+        fee: 1_000_000n,
+        decimals: 6,
+      }),
+    ).rejects.toThrow(/less than the swept/i);
   });
 });
 
