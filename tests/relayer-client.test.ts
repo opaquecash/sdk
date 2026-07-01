@@ -20,6 +20,9 @@ import {
   buildSolanaCreateJob,
   selectWinner,
   verifyEvmBidSignature,
+  gaslessSweepSubmission,
+  postGaslessSweep,
+  getSweepInfo,
   type Bid,
 } from "@opaquecash/relayer-client";
 
@@ -167,5 +170,56 @@ describe("escrow tx builders", () => {
     expect(ix.programId.equals(program)).toBe(true);
     expect(ix.keys[1].pubkey.equals(creator)).toBe(true);
     expect(ix.keys[2].pubkey.equals(SystemProgram.programId)).toBe(true);
+  });
+});
+
+describe("gasless sweep gateway client", () => {
+  it("narrows a built sweep to the minimal /v1/sweep body", () => {
+    expect(
+      gaslessSweepSubmission({ chain: "ethereum", to: "0xForwarder", data: "0xabcd" }),
+    ).toEqual({ chain: "ethereum", to: "0xForwarder", data: "0xabcd" });
+    expect(
+      gaslessSweepSubmission({ chain: "solana", transactionBase64: "AQID" }),
+    ).toEqual({ chain: "solana", transactionBase64: "AQID" });
+  });
+
+  it("POSTs the submission and returns the relayer tx id", async () => {
+    let captured: { url: string; body: unknown } | null = null;
+    const fetchFn = (async (url: string, init?: RequestInit) => {
+      captured = { url, body: JSON.parse(String(init?.body)) };
+      return { ok: true, status: 200, json: async () => ({ ok: true, tx: "0xdeadbeef" }) };
+    }) as unknown as typeof fetch;
+
+    const { tx } = await postGaslessSweep(
+      { baseUrl: "http://localhost:8787/", fetchFn },
+      { chain: "ethereum", to: "0xForwarder", data: "0xabcd" },
+    );
+    expect(tx).toBe("0xdeadbeef");
+    expect(captured!.url).toBe("http://localhost:8787/v1/sweep");
+    expect(captured!.body).toEqual({ chain: "ethereum", to: "0xForwarder", data: "0xabcd" });
+  });
+
+  it("throws with the relayer error on failure", async () => {
+    const fetchFn = (async () => ({
+      ok: false,
+      status: 400,
+      json: async () => ({ ok: false, error: "fee below gas cost" }),
+    })) as unknown as typeof fetch;
+    await expect(
+      postGaslessSweep(
+        { baseUrl: "http://localhost:8787", fetchFn },
+        { chain: "solana", transactionBase64: "AQID" },
+      ),
+    ).rejects.toThrow(/fee below gas cost/);
+  });
+
+  it("reads the relayer's per-chain sweep info", async () => {
+    const fetchFn = (async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ chains: [{ chain: 1, operator: "SoLoperator" }] }),
+    })) as unknown as typeof fetch;
+    const info = await getSweepInfo({ baseUrl: "http://localhost:8787", fetchFn });
+    expect(info.chains[0].operator).toBe("SoLoperator");
   });
 });
