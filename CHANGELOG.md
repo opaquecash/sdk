@@ -5,6 +5,18 @@ All notable changes to the Opaque SDK packages.
 ## Unreleased
 
 ### Added
+- **Solana fee-in-token gasless sweep.** `buildStealthTokenSweepTransaction`
+  (`@opaquecash/stealth-chain-solana` 0.2.2) takes `fee` + `feeRecipientOwner` (default: the fee
+  payer): the destination receives `amount - fee` and the relayer's ATA receives `fee` in the same
+  stealth-signed transaction, closing the gap where the Solana path of
+  `OpaqueClient.buildGaslessTokenSweep` accepted `fee` but ignored it. The client
+  (`@opaquecash/opaque` 0.2.7) threads `fee` through and `SolanaGaslessSweep` now reports `fee`
+  and `destinationAmount`.
+- **Gasless sweep gateway client** (`@opaquecash/relayer-client` 0.2.2) — `postGaslessSweep`
+  submits an owner-authorized sweep to a relayer node's new `POST /v1/sweep` endpoint
+  (escrow-free, relayer-market §9) and returns the on-chain tx id; `getSweepInfo` reads the
+  node's per-chain operator + EVM forwarder from `GET /v1/sweep/info`; `gaslessSweepSubmission`
+  narrows a `buildGaslessTokenSweep` result to the minimal wire body.
 - **Cross-chain PSR admin API on `OpaqueClient`.** `createSchema`, `getMySchemas`,
   `deprecateSchema`, `addSchemaDelegate`, `removeSchemaDelegate`, `getMyIssuedAttestations`, and
   `issueAttestation` each take `chain: "ethereum" | "solana"` and behave identically, returning the

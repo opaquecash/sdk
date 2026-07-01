@@ -1,6 +1,6 @@
 {
   "name": "@opaquecash/opaque",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "description": "Unified Opaque SDK client: config, indexer announcements, announce payloads, balances, traits",
   "type": "module",
   "main": "./dist/index.js",
@@ -31,7 +31,7 @@
     "@opaquecash/psr-prover": "0.2.1",
     "@opaquecash/stealth-balance": "0.2.0",
     "@opaquecash/stealth-chain": "0.2.4",
-    "@opaquecash/stealth-chain-solana": "0.2.1",
+    "@opaquecash/stealth-chain-solana": "0.2.2",
     "@opaquecash/stealth-core": "0.2.0",
     "@opaquecash/stealth-wasm": "0.2.1",
     "@opaquecash/uab": "0.2.1",

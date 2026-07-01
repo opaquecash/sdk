@@ -1,6 +1,6 @@
 {
   "name": "@opaquecash/relayer-client",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Client for the Opaque gas-private submission market: build jobs, fund the escrow, collect relayer bids, encrypt the payload to the winner, and track settlement (spec/relayer-market.md)",
   "type": "module",
   "main": "./dist/index.js",
