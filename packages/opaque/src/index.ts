@@ -156,6 +156,7 @@ export {
   deriveKeysFromSignature,
   generateRandomMetaAddress,
   computeStealthAddressAndViewTag,
+  recipientStealthPoint,
   recomputeStealthSendFromEphemeralPrivateKey,
   ephemeralPrivateKeyToCompressedPublicKey,
   stealthMetaAddressToHex,

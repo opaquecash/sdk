@@ -47,7 +47,6 @@ import {
   SolanaAdapter,
   type SolanaAdapterConfig,
   deriveStealthSolanaAddress,
-  deriveStealthSolanaAddressFromStealthPrivKey,
   fetchOnsMirrorRecord,
   fetchSnsTxtRecord,
   fetchOnsClaimStatus,
@@ -78,6 +77,7 @@ const onsNameRegistryAbi = [
   },
 ] as const;
 import type { Announcement, ChainAdapter } from "@opaquecash/adapter";
+import { WORMHOLE_CHAIN_SOLANA } from "@opaquecash/adapter";
 import {
   checkAnnouncement,
   checkAnnouncementViewTag,
@@ -168,6 +168,7 @@ import {
   stealthMetaAddressToHex,
   viewOnlyMetaAddress,
   computeStealthAddressAndViewTag,
+  recipientStealthPoint,
   recomputeStealthSendFromEphemeralPrivateKey,
   ephemeralPrivateKeyToCompressedPublicKey,
   generateRandomMetaAddress,
@@ -1870,13 +1871,37 @@ export class OpaqueClient {
     const includeCrossChain =
       opts.includeCrossChain ?? (opts.chains.includes("ethereum") && uabConfigured);
     if (includeCrossChain) {
-      const crossOwned = await this.scanCrossChain({
-        fromBlock: opts.fromBlock,
+      // Cross-chain announcements carry their Wormhole origin chain. Group by it so
+      // each owned output is tagged (and later balance-read) on the chain the funds
+      // actually live on — a Solana-originated payment relayed to Ethereum must stay
+      // `chain: "solana"`, not the chain it was relayed to.
+      const { uabReceiver, fromBlock: uabFromBlock } = this.uabAddresses();
+      const records = await uabFetchCrossChainAnnouncements(this.publicClient, {
+        uabReceiver,
+        fromBlock: opts.fromBlock ?? uabFromBlock,
         toBlock: opts.toBlock,
       });
       const evmChainId = this.getAdapter("ethereum").chainId;
-      for (const o of crossOwned) {
-        out.push({ ...o, chain: "ethereum", chainId: evmChainId, source: "uab" });
+      let solanaChainId = WORMHOLE_CHAIN_SOLANA;
+      try {
+        solanaChainId = this.getAdapter("solana").chainId;
+      } catch {
+        // Solana not configured; keep the Wormhole chain id as a stable fallback.
+      }
+      const byOrigin = new Map<number, typeof records>();
+      for (const record of records) {
+        const bucket = byOrigin.get(record.sourceChain);
+        if (bucket) bucket.push(record);
+        else byOrigin.set(record.sourceChain, [record]);
+      }
+      for (const [sourceChain, recs] of byOrigin) {
+        const owned = await this.filterOwnedAnnouncements(recs.map(uabToIndexerAnnouncement));
+        const originChain: OpaqueScanChain =
+          sourceChain === WORMHOLE_CHAIN_SOLANA ? "solana" : "ethereum";
+        const chainId = originChain === "solana" ? solanaChainId : evmChainId;
+        for (const o of owned) {
+          out.push({ ...o, chain: originChain, chainId, source: "uab" });
+        }
       }
     }
     return out;
@@ -2260,8 +2285,14 @@ export class OpaqueClient {
           nativeRaw: wei,
         });
       } else if (o.chain === "solana") {
-        const stealthPrivKey = this.getStealthSignerPrivateKey(o);
-        const address = deriveStealthSolanaAddressFromStealthPrivKey(stealthPrivKey);
+        // View-only: derive the Solana account from the stealth PUBLIC key (no
+        // spending key needed), so a watch-only scanner can read SOL balances.
+        const { stealthPubKeyUncompressed } = recipientStealthPoint(
+          this.viewingKey,
+          this.spendPubKey,
+          hexToBytes(o.ephemeralPublicKey),
+        );
+        const address = deriveStealthSolanaAddress(stealthPubKeyUncompressed);
         const lamports = await this.getSolanaAdapter().connection.getBalance(
           new PublicKey(address),
         );
@@ -2318,8 +2349,13 @@ export class OpaqueClient {
         }
       } else if (o.chain === "solana") {
         if (solanaMints.length === 0) continue;
-        const stealthPrivKey = this.getStealthSignerPrivateKey(o);
-        const address = deriveStealthSolanaAddressFromStealthPrivKey(stealthPrivKey);
+        // View-only: derive the Solana account from the stealth PUBLIC key.
+        const { stealthPubKeyUncompressed } = recipientStealthPoint(
+          this.viewingKey,
+          this.spendPubKey,
+          hexToBytes(o.ephemeralPublicKey),
+        );
+        const address = deriveStealthSolanaAddress(stealthPubKeyUncompressed);
         const connection = this.getSolanaAdapter().connection;
         for (const mint of solanaMints) {
           const raw = await getStealthTokenBalance(connection, { owner: address, mint });

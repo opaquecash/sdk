@@ -151,6 +151,45 @@ function stealthPointAndAddress(
   return { stealthAddress: addr, stealthPubKeyUncompressed: uncompressed };
 }
 
+/**
+ * Recipient-side ECDH shared secret: viewing PRIVATE key · ephemeral PUBLIC key.
+ * Equals the sender's `ephemeralPriv · viewPubKey` (the same curve point), so a
+ * view-only holder can recompute an owned output's stealth point without the
+ * spending private key.
+ */
+function sharedSecretRecipient(
+  viewingKey: Uint8Array,
+  ephemeralPubKey: Uint8Array,
+): Uint8Array {
+  assertCompressedPubkey33("ephemeralPubKey", ephemeralPubKey);
+  const R = CURVE.ProjectivePoint.fromHex(ephemeralPubKey);
+  const scalar = bytesToBigInt(viewingKey) % CURVE.CURVE.n;
+  if (scalar === 0n) throw new Error("Invalid viewing key");
+  return R.multiply(scalar).toRawBytes(true);
+}
+
+/**
+ * Recompute an owned output's stealth address + uncompressed public-key point from
+ * its ephemeral public key, using the viewing PRIVATE key and the spending PUBLIC
+ * key only — never the spending private key. This is the view-only dual of
+ * {@link computeStealthAddressAndViewTag}: use it to derive the Solana destination
+ * (`deriveStealthSolanaAddress`) or verify the EVM address for a scanned output
+ * without spending authority.
+ */
+export function recipientStealthPoint(
+  viewingKey: Uint8Array,
+  spendPubKey: Uint8Array,
+  ephemeralPubKey: Uint8Array,
+): { stealthAddress: Address; stealthPubKeyUncompressed: Uint8Array; viewTag: number } {
+  const shared = sharedSecretRecipient(viewingKey, ephemeralPubKey);
+  const { sH, viewTag } = hashSharedSecret(shared);
+  const { stealthAddress, stealthPubKeyUncompressed } = stealthPointAndAddress(
+    spendPubKey,
+    sH,
+  );
+  return { stealthAddress, stealthPubKeyUncompressed, viewTag };
+}
+
 export function computeStealthAddressAndViewTag(recipientMetaAddressHex: Hex): {
   ephemeralPriv: Uint8Array;
   ephemeralPubKey: Uint8Array;
