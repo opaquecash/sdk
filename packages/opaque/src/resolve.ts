@@ -65,18 +65,19 @@ export interface ResolveTransports {
 }
 
 /**
- * Parse and validate a published meta-address value: the §2.1 serialisation
- * (`0x` + 132 hex, `V‖S`), optionally `st:opq:`-prefixed. Returns the canonical
- * `0x`-form, or `null` when malformed or when either 33-byte half is not a valid
- * compressed secp256k1 point.
+ * Parse and validate a published meta-address value: the §2.1 serialisation, optionally
+ * `st:opq:`-prefixed. Accepts the 66-byte `V‖S` form (`0x` + 132 hex) and the 98-byte
+ * `V‖S‖S_ed` form (`0x` + 196 hex) that adds the ed25519 Solana spend key. Returns the canonical
+ * `0x`-form, or `null` when malformed or when either secp256k1 half (`V`, `S`) is not a valid
+ * compressed point. The trailing 32-byte `S_ed` is an ed25519 point and is not secp-validated here.
  */
 export function parseMetaAddressValue(value: string): Hex | null {
   let v = value.trim();
   if (v.startsWith(META_ADDRESS_VALUE_PREFIX)) {
     v = v.slice(META_ADDRESS_VALUE_PREFIX.length).trim();
   }
-  if (!v.startsWith("0x") && /^[0-9a-fA-F]{132}$/.test(v)) v = `0x${v}`;
-  if (!/^0x[0-9a-fA-F]{132}$/.test(v)) return null;
+  if (!v.startsWith("0x") && /^([0-9a-fA-F]{132}|[0-9a-fA-F]{196})$/.test(v)) v = `0x${v}`;
+  if (!/^0x([0-9a-fA-F]{132}|[0-9a-fA-F]{196})$/.test(v)) return null;
   const viewHalf = v.slice(2, 68);
   const spendHalf = v.slice(68, 134);
   for (const half of [viewHalf, spendHalf]) {

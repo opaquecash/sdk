@@ -2,8 +2,8 @@
  * Live end-to-end test of the gasless SPL sweep on Solana devnet (spec/relayer-market.md §9.2).
  *
  * A one-time stealth account holds an SPL token but NO SOL. The relayer signs as fee payer while
- * the reconstructed stealth keypair signs the transfer as token authority, so the funds move
- * without the stealth account ever holding SOL.
+ * the ed25519 stealth signer signs the transfer as token authority, so the funds move without the
+ * stealth account ever holding SOL.
  *
  *   SOLANA_RPC_URL=https://api.devnet.solana.com \
  *   SOLANA_KEYPAIR=~/.config/solana/id.json \
@@ -13,16 +13,17 @@
  */
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { Connection, Keypair, PublicKey, clusterApiUrl } from "@solana/web3.js";
+import { randomBytes } from "node:crypto";
+import { Connection, Keypair, clusterApiUrl } from "@solana/web3.js";
 import {
   createMint,
   getOrCreateAssociatedTokenAccount,
   mintTo,
   getAccount,
 } from "@solana/spl-token";
-import { secp256k1 } from "@noble/curves/secp256k1";
 import {
-  deriveStealthSolanaAddressFromStealthPrivKey,
+  stealthSolanaSigner,
+  applyStealthSignature,
   stealthTokenAccount,
   getStealthTokenBalance,
   buildStealthTokenSweepTransaction,
@@ -42,9 +43,10 @@ async function main() {
   const connection = new Connection(rpc, "confirmed");
   const relayer = loadKeypair(keypairPath); // fee payer + funder + sweep destination
 
-  // One-time stealth key: a secp256k1 key whose Solana account holds the token but no SOL.
-  const stealthPrivKey = secp256k1.utils.randomPrivateKey();
-  const stealthOwner = new PublicKey(deriveStealthSolanaAddressFromStealthPrivKey(stealthPrivKey));
+  // One-time stealth account: a native ed25519 account controlled by a raw spend scalar. In a real
+  // send the recipient reconstructs this scalar as `(s_ed + h_ed) mod L`; here we mint a random one.
+  const signer = stealthSolanaSigner(new Uint8Array(randomBytes(32)));
+  const stealthOwner = signer.publicKey;
   const value = 1n * 10n ** BigInt(DECIMALS);
 
   console.log("relayer/payer:", relayer.publicKey.toBase58());
@@ -61,16 +63,16 @@ async function main() {
   console.log(`stealth token balance: ${ataBal} (raw); stealth SOL balance: ${ownerSol} lamports`);
   if (ownerSol !== 0) throw new Error("stealth account unexpectedly holds SOL");
 
-  // 2. Build the sweep with the relayer as fee payer; stealth keypair signs as authority.
+  // 2. Build the sweep with the relayer as fee payer; the stealth signer signs as token authority.
   const plan = await buildStealthTokenSweepTransaction(connection, {
-    stealthPrivKey,
+    signer,
     mint,
     destinationOwner: relayer.publicKey,
     feePayer: relayer.publicKey,
     decimals: DECIMALS,
     closeAccount: true, // reclaim the stealth ATA rent to the fee payer
   });
-  plan.transaction.partialSign(plan.stealthKeypair);
+  applyStealthSignature(plan.transaction, plan.signer);
   const base64 = plan.transaction.serialize({ requireAllSignatures: false }).toString("base64");
 
   // 3. Relayer co-signs as fee payer and submits.

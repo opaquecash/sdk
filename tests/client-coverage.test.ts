@@ -238,7 +238,7 @@ describe("PSR admin (ethereum, mocked psr-chain)", () => {
         recipient: "0x1234",
         fieldValues: { passed: "true" },
       }),
-    ).rejects.toThrow(/66-byte meta-address/);
+    ).rejects.toThrow(/66-byte or 98-byte meta-address/);
   });
 
   it("rejects unknown schemas, unauthorized issuers, and bad expiries", async () => {

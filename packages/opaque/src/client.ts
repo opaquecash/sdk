@@ -58,6 +58,9 @@ import {
   getStealthTokenBalance,
   sweepStealthToken as sweepSolanaStealthToken,
   buildStealthTokenSweepTransaction,
+  stealthSolanaSigner,
+  applyStealthSignature,
+  type StealthSolanaSigner,
   type OnsClaimStatus,
 } from "@opaquecash/stealth-chain-solana";
 import { getEvmDeployment, getOnsDeployment } from "@opaquecash/deployments";
@@ -169,6 +172,7 @@ import {
   viewOnlyMetaAddress,
   computeStealthAddressAndViewTag,
   recipientStealthPoint,
+  reconstructSolanaSpendScalar,
   recomputeStealthSendFromEphemeralPrivateKey,
   ephemeralPrivateKeyToCompressedPublicKey,
   generateRandomMetaAddress,
@@ -615,10 +619,14 @@ export interface PrepareStealthSendResult {
   /** Metadata bytes for `announce` (view tag byte; extend with WASM for PSR). */
   metadata: Uint8Array;
   /**
-   * Uncompressed (65-byte) stealth public-key point. Needed to derive the Solana destination
-   * account (`deriveStealthSolanaAddress`); not required for the EVM `announce`.
+   * Uncompressed (65-byte) secp256k1 stealth public-key point (Ethereum); not required for `announce`.
    */
   stealthPubKey: Uint8Array;
+  /**
+   * 32-byte ed25519 Solana stealth address point. Needed to derive the Solana destination
+   * (`deriveStealthSolanaAddress`); present only when the recipient meta-address carries `S_ed`.
+   */
+  solanaStealthPubKey?: Uint8Array;
 }
 
 /**
@@ -706,6 +714,10 @@ export class OpaqueClient {
   /** Spending private key. Undefined for a view-only client (scan-only, cannot spend). */
   private readonly spendingKey?: Uint8Array;
   private readonly spendPubKey: Uint8Array;
+  /** ed25519 Solana spend seed `s_ed`. Undefined for a view-only client (cannot spend on Solana). */
+  private readonly solanaSpendingKey?: Uint8Array;
+  /** ed25519 Solana spend PUBLIC key `S_ed`; undefined for a legacy 66-byte (Ethereum-only) key set. */
+  private readonly solanaSpendPubKey?: Uint8Array;
   private readonly metaAddressHex: Hex;
   private readonly publicClient: PublicClient;
   private readonly wasm: StealthWasmModule;
@@ -725,6 +737,8 @@ export class OpaqueClient {
       viewingKey: Uint8Array;
       spendingKey?: Uint8Array;
       spendPubKey: Uint8Array;
+      solanaSpendingKey?: Uint8Array;
+      solanaSpendPubKey?: Uint8Array;
       metaAddressHex: Hex;
     },
   ) {
@@ -745,6 +759,8 @@ export class OpaqueClient {
     this.viewingKey = keys.viewingKey;
     this.spendingKey = keys.spendingKey;
     this.spendPubKey = keys.spendPubKey;
+    this.solanaSpendingKey = keys.solanaSpendingKey;
+    this.solanaSpendPubKey = keys.solanaSpendPubKey;
     this.metaAddressHex = keys.metaAddressHex;
     this.publicClient = createPublicClient({
       transport: http(config.rpcUrl),
@@ -760,12 +776,12 @@ export class OpaqueClient {
     const wasm = config.wasmModuleSpecifier
       ? await initStealthWasm({ moduleSpecifier: config.wasmModuleSpecifier })
       : wasmUnavailable();
-    const { viewingKey, spendingKey } = deriveKeysFromSignature(
-      config.walletSignature,
-    );
-    const { S, metaAddress } = keysToStealthMetaAddress(
+    const { viewingKey, spendingKey, solanaSpendingKey } =
+      deriveKeysFromSignature(config.walletSignature);
+    const { S, solanaSpendPubKey, metaAddress } = keysToStealthMetaAddress(
       viewingKey,
       spendingKey,
+      solanaSpendingKey,
     );
     const metaAddressHex = stealthMetaAddressToHex(metaAddress);
     return new OpaqueClient(
@@ -776,6 +792,8 @@ export class OpaqueClient {
         viewingKey,
         spendingKey,
         spendPubKey: S,
+        solanaSpendingKey,
+        solanaSpendPubKey,
         metaAddressHex,
       },
     );
@@ -792,7 +810,12 @@ export class OpaqueClient {
    */
   static async createViewOnly(
     config: Omit<OpaqueClientConfig, "walletSignature">,
-    keys: { viewingKey: Hex | Uint8Array; spendPublicKey: Hex | Uint8Array },
+    keys: {
+      viewingKey: Hex | Uint8Array;
+      spendPublicKey: Hex | Uint8Array;
+      /** ed25519 Solana spend PUBLIC key `S_ed` (32 bytes); required to scan/read Solana balances. */
+      solanaSpendPublicKey?: Hex | Uint8Array;
+    },
   ): Promise<OpaqueClient> {
     const deployment = requireChainDeployment(config.chainId);
     const wasm = config.wasmModuleSpecifier
@@ -804,7 +827,13 @@ export class OpaqueClient {
       typeof keys.spendPublicKey === "string"
         ? hexToBytes(keys.spendPublicKey)
         : keys.spendPublicKey;
-    const { metaAddress } = viewOnlyMetaAddress(viewingKey, spendPubKey);
+    const solanaSpendPubKey =
+      keys.solanaSpendPublicKey === undefined
+        ? undefined
+        : typeof keys.solanaSpendPublicKey === "string"
+          ? hexToBytes(keys.solanaSpendPublicKey)
+          : keys.solanaSpendPublicKey;
+    const { metaAddress } = viewOnlyMetaAddress(viewingKey, spendPubKey, solanaSpendPubKey);
     return new OpaqueClient(
       { ...config, walletSignature: "0x" as Hex },
       deployment,
@@ -812,6 +841,7 @@ export class OpaqueClient {
       {
         viewingKey,
         spendPubKey,
+        solanaSpendPubKey,
         metaAddressHex: stealthMetaAddressToHex(metaAddress),
       },
     );
@@ -964,7 +994,7 @@ export class OpaqueClient {
     const trimmed = input.trim();
     if (
       trimmed.startsWith(META_ADDRESS_VALUE_PREFIX) ||
-      /^(0x)?[0-9a-fA-F]{132}$/.test(trimmed)
+      /^(0x)?([0-9a-fA-F]{132}|[0-9a-fA-F]{196})$/.test(trimmed)
     ) {
       const meta = parseMetaAddressValue(trimmed);
       if (!meta) {
@@ -1327,6 +1357,7 @@ export class OpaqueClient {
       ephemeralPrivateKey: r.ephemeralPriv,
       metadata: r.metadata,
       stealthPubKey: r.stealthPubKeyUncompressed,
+      solanaStealthPubKey: r.solanaStealthPubKey,
     };
   }
 
@@ -1355,7 +1386,14 @@ export class OpaqueClient {
     if (params.chain === "solana") {
       const wallet = this.requireSolanaWallet();
       const adapter = this.getSolanaAdapter();
-      const destination = deriveStealthSolanaAddress(send.stealthPubKey);
+      if (!send.solanaStealthPubKey) {
+        throw new Error(
+          "Opaque: recipient meta-address has no Solana (ed25519) spend key; it cannot receive " +
+            "Solana stealth payments. Resolve a 98-byte meta-address (registered by an SDK >= this " +
+            "version), or send on Ethereum.",
+        );
+      }
+      const destination = deriveStealthSolanaAddress(send.solanaStealthPubKey);
       const transferIxs: TransactionInstruction[] = [];
       if (params.token) {
         const decimals = await resolveMintDecimals(adapter.connection, params.token);
@@ -1612,6 +1650,7 @@ export class OpaqueClient {
       ephemeralPrivateKey: r.ephemeralPriv,
       metadata: r.metadata,
       stealthPubKey: r.stealthPubKeyUncompressed,
+      solanaStealthPubKey: r.solanaStealthPubKey,
     });
   }
 
@@ -1985,8 +2024,8 @@ export class OpaqueClient {
     /** Solana only: also close the emptied token account and reclaim its rent. */
     closeAccount?: boolean;
   }): Promise<{ chain: OpaqueScanChain; tx: string }> {
-    const stealthPrivKey = this.getStealthSignerPrivateKey(params.output);
     if (params.chain === "ethereum") {
+      const stealthPrivKey = this.getStealthSignerPrivateKey(params.output);
       const hash = params.token
         ? await sweepEvmStealthToken(this.publicClient, {
             stealthPrivKey,
@@ -2002,11 +2041,12 @@ export class OpaqueClient {
       return { chain: "ethereum", tx: hash };
     }
     if (params.chain === "solana") {
+      const signer = this.getStealthSolanaSigner(params.output);
       if (params.token) {
         const { signature } = await sweepSolanaStealthToken(
           this.getSolanaAdapter().connection,
           {
-            stealthPrivKey,
+            signer,
             mint: params.token,
             destinationOwner: params.destination,
             closeAccount: params.closeAccount,
@@ -2015,7 +2055,7 @@ export class OpaqueClient {
         return { chain: "solana", tx: signature };
       }
       const { signature } = await this.getSolanaAdapter().sweepStealthSol({
-        stealthPrivKey,
+        signer,
         destination: params.destination,
       });
       return { chain: "solana", tx: signature };
@@ -2055,9 +2095,8 @@ export class OpaqueClient {
     /** Solana: also close the emptied token account and return its rent to the fee payer. */
     closeAccount?: boolean;
   }): Promise<GaslessSweep> {
-    const stealthPrivKey = this.getStealthSignerPrivateKey(params.output);
-
     if (params.chain === "ethereum") {
+      const stealthPrivKey = this.getStealthSignerPrivateKey(params.output);
       const forwarder =
         params.forwarder ??
         this.config.contracts?.stealthTokenSweep ??
@@ -2156,7 +2195,7 @@ export class OpaqueClient {
         throw new Error("Opaque: a Solana gasless sweep requires `feePayer` (the relayer pubkey).");
       }
       const plan = await buildStealthTokenSweepTransaction(this.getSolanaAdapter().connection, {
-        stealthPrivKey,
+        signer: this.getStealthSolanaSigner(params.output),
         mint: params.token,
         destinationOwner: params.destination,
         feePayer: params.feePayer,
@@ -2164,7 +2203,8 @@ export class OpaqueClient {
         fee: params.fee,
         closeAccount: params.closeAccount,
       });
-      plan.transaction.partialSign(plan.stealthKeypair);
+      // Pre-apply the stealth account's signature; the relayer co-signs as fee payer.
+      applyStealthSignature(plan.transaction, plan.signer);
       const transactionBase64 = plan.transaction
         .serialize({ requireAllSignatures: false })
         .toString("base64");
@@ -2203,6 +2243,58 @@ export class OpaqueClient {
       this.viewingKey,
       ephemeralPubkeyBytes,
     );
+  }
+
+  /** The client's ed25519 Solana spend PUBLIC key, or throw if this key set predates it. */
+  private requireSolanaSpendPubKey(): Uint8Array {
+    if (!this.solanaSpendPubKey) {
+      throw new Error(
+        "Opaque: this key set has no Solana (ed25519) spend key; re-derive with a current SDK " +
+          "(create/createViewOnly) to enable Solana stealth scanning and spending.",
+      );
+    }
+    return this.solanaSpendPubKey;
+  }
+
+  /** View-only: the 32-byte ed25519 Solana stealth address point for an owned output. */
+  private requireSolanaStealthPoint(ephemeralPublicKeyHex: Hex): Uint8Array {
+    const { solanaStealthPubKey } = recipientStealthPoint(
+      this.viewingKey,
+      this.spendPubKey,
+      hexToBytes(ephemeralPublicKeyHex),
+      this.requireSolanaSpendPubKey(),
+    );
+    if (!solanaStealthPubKey) {
+      throw new Error("Opaque: failed to derive Solana stealth point");
+    }
+    return solanaStealthPubKey;
+  }
+
+  /**
+   * Build the {@link StealthSolanaSigner} that controls `output`'s one-time Solana stealth account,
+   * from the reconstructed ed25519 spend scalar `a = (s_ed + h_ed) mod L`. Requires the Solana spend
+   * seed (throws for a view-only client). Used by {@link sweep} and the gasless sweep path.
+   */
+  getStealthSolanaSigner(
+    output: Pick<OwnedStealthOutput, "ephemeralPublicKey">,
+  ): StealthSolanaSigner {
+    if (!this.solanaSpendingKey) {
+      throw new Error(
+        "Opaque: view-only client has no Solana spend key; it can scan but cannot sweep on Solana.",
+      );
+    }
+    const ephemeralPubkeyBytes = hexToBytes(output.ephemeralPublicKey);
+    if (ephemeralPubkeyBytes.length !== 33) {
+      throw new Error(
+        "Opaque: ephemeralPublicKey must be 33-byte compressed secp256k1 hex",
+      );
+    }
+    const scalar = reconstructSolanaSpendScalar(
+      this.solanaSpendingKey,
+      this.viewingKey,
+      ephemeralPubkeyBytes,
+    );
+    return stealthSolanaSigner(scalar);
   }
 
   /**
@@ -2285,14 +2377,11 @@ export class OpaqueClient {
           nativeRaw: wei,
         });
       } else if (o.chain === "solana") {
-        // View-only: derive the Solana account from the stealth PUBLIC key (no
-        // spending key needed), so a watch-only scanner can read SOL balances.
-        const { stealthPubKeyUncompressed } = recipientStealthPoint(
-          this.viewingKey,
-          this.spendPubKey,
-          hexToBytes(o.ephemeralPublicKey),
-        );
-        const address = deriveStealthSolanaAddress(stealthPubKeyUncompressed);
+        // View-only: derive the ed25519 Solana account from the ed25519 spend PUBLIC
+        // key `S_ed` and the shared secret (no spend key needed), so a watch-only
+        // scanner can read SOL balances.
+        const solanaStealthPubKey = this.requireSolanaStealthPoint(o.ephemeralPublicKey);
+        const address = deriveStealthSolanaAddress(solanaStealthPubKey);
         const lamports = await this.getSolanaAdapter().connection.getBalance(
           new PublicKey(address),
         );
@@ -2349,13 +2438,9 @@ export class OpaqueClient {
         }
       } else if (o.chain === "solana") {
         if (solanaMints.length === 0) continue;
-        // View-only: derive the Solana account from the stealth PUBLIC key.
-        const { stealthPubKeyUncompressed } = recipientStealthPoint(
-          this.viewingKey,
-          this.spendPubKey,
-          hexToBytes(o.ephemeralPublicKey),
-        );
-        const address = deriveStealthSolanaAddress(stealthPubKeyUncompressed);
+        // View-only: derive the ed25519 Solana account from the ed25519 spend PUBLIC key.
+        const solanaStealthPubKey = this.requireSolanaStealthPoint(o.ephemeralPublicKey);
+        const address = deriveStealthSolanaAddress(solanaStealthPubKey);
         const connection = this.getSolanaAdapter().connection;
         for (const mint of solanaMints) {
           const raw = await getStealthTokenBalance(connection, { owner: address, mint });
@@ -2863,7 +2948,9 @@ export class OpaqueClient {
     const trimmed = recipient.trim();
     const normalized = (trimmed.startsWith("0x") ? trimmed : `0x${trimmed}`) as Hex;
     const hexLen = normalized.length - 2;
-    if (hexLen === 132) {
+    // 132 hex = 66-byte V‖S; 196 hex = 98-byte V‖S‖S_ed. PSR is EVM-side, so the ed25519
+    // half is ignored — computeStealthAddressAndViewTag reads V‖S from either length.
+    if (hexLen === 132 || hexLen === 196) {
       const r = computeStealthAddressAndViewTag(normalized);
       return {
         hash: keccak256(r.stealthAddress),
@@ -2879,7 +2966,7 @@ export class OpaqueClient {
       return { hash: normalized };
     }
     throw new Error(
-      "Opaque PSR: recipient must be a 66-byte meta-address, 20-byte stealth address, or 32-byte hash (hex).",
+      "Opaque PSR: recipient must be a 66-byte or 98-byte meta-address, 20-byte stealth address, or 32-byte hash (hex).",
     );
   }
 

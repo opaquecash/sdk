@@ -19,7 +19,8 @@ const schemaParams = { name: "offline", fieldDefinitions: "bool passed", revocab
 describe("OpaqueClient PSR admin (offline)", () => {
   it("constructs without a wasmModuleSpecifier and derives a meta-address", async () => {
     const client = await OpaqueClient.create(baseConfig);
-    expect(client.getMetaAddressHex()).toMatch(/^0x[0-9a-fA-F]{132}$/);
+    // 98-byte meta-address: V‖S (secp) ‖ S_ed (ed25519) = 196 hex chars.
+    expect(client.getMetaAddressHex()).toMatch(/^0x[0-9a-fA-F]{196}$/);
   });
 
   it("throws a clear error when a WASM-backed method is used without WASM", async () => {

@@ -11,11 +11,9 @@
 
 import {
   Connection,
-  Keypair,
   PublicKey,
   Transaction,
   TransactionInstruction,
-  sendAndConfirmTransaction,
   type Finality,
 } from "@solana/web3.js";
 import {
@@ -28,7 +26,8 @@ import {
   getAssociatedTokenAddressSync,
   getMint,
 } from "@solana/spl-token";
-import { deriveStealthSolanaKeypairFromStealthPrivKey } from "./stealth.js";
+import type { StealthSolanaSigner } from "./stealth.js";
+import { signAndSendStealth } from "./sign.js";
 
 function toPubkey(v: PublicKey | string): PublicKey {
   return typeof v === "string" ? new PublicKey(v.trim()) : v;
@@ -147,7 +146,8 @@ export async function resolveMintDecimals(
 /** A prepared full-balance token sweep (transaction not yet signed/sent). */
 export interface StealthTokenSweepPlan {
   transaction: Transaction;
-  stealthKeypair: Keypair;
+  /** Signer for the one-time stealth account; sign the transaction message with this. */
+  signer: StealthSolanaSigner;
   feePayer: PublicKey;
   mint: PublicKey;
   destinationOwner: PublicKey;
@@ -159,6 +159,8 @@ export interface StealthTokenSweepPlan {
   destinationAmount: bigint;
   /** Owner of the ATA that receives `fee` (the relayer); equals `feePayer` when unset. */
   feeRecipientOwner: PublicKey;
+  /** Block height after which `transaction.recentBlockhash` expires (for confirmation). */
+  lastValidBlockHeight: number;
 }
 
 /**
@@ -177,7 +179,8 @@ export interface StealthTokenSweepPlan {
 export async function buildStealthTokenSweepTransaction(
   connection: Connection,
   params: {
-    stealthPrivKey: Uint8Array;
+    /** Signer for the one-time stealth account (from {@link stealthSolanaSigner}). */
+    signer: StealthSolanaSigner;
     mint: PublicKey | string;
     destinationOwner: PublicKey | string;
     feePayer?: PublicKey | string;
@@ -193,8 +196,7 @@ export async function buildStealthTokenSweepTransaction(
 ): Promise<StealthTokenSweepPlan> {
   const commitment: Finality = params.commitment ?? "confirmed";
   const tokenProgramId = params.tokenProgramId ?? TOKEN_PROGRAM_ID;
-  const stealthKeypair = deriveStealthSolanaKeypairFromStealthPrivKey(params.stealthPrivKey);
-  const owner = stealthKeypair.publicKey;
+  const owner = params.signer.publicKey;
   const feePayer = params.feePayer ? toPubkey(params.feePayer) : owner;
   const mint = toPubkey(params.mint);
   const destinationOwner = toPubkey(params.destinationOwner);
@@ -262,14 +264,15 @@ export async function buildStealthTokenSweepTransaction(
     );
   }
 
-  const { blockhash } = await connection.getLatestBlockhash(commitment);
+  const { blockhash, lastValidBlockHeight } =
+    await connection.getLatestBlockhash(commitment);
   const transaction = new Transaction({ feePayer, recentBlockhash: blockhash }).add(
     ...instructions,
   );
 
   return {
     transaction,
-    stealthKeypair,
+    signer: params.signer,
     feePayer,
     mint,
     destinationOwner,
@@ -277,6 +280,7 @@ export async function buildStealthTokenSweepTransaction(
     fee,
     destinationAmount,
     feeRecipientOwner,
+    lastValidBlockHeight,
   };
 }
 
@@ -289,7 +293,7 @@ export async function buildStealthTokenSweepTransaction(
 export async function sweepStealthToken(
   connection: Connection,
   params: {
-    stealthPrivKey: Uint8Array;
+    signer: StealthSolanaSigner;
     mint: PublicKey | string;
     destinationOwner: PublicKey | string;
     decimals?: number;
@@ -299,11 +303,9 @@ export async function sweepStealthToken(
   },
 ): Promise<{ signature: string; amount: bigint }> {
   const plan = await buildStealthTokenSweepTransaction(connection, params);
-  const signature = await sendAndConfirmTransaction(
-    connection,
-    plan.transaction,
-    [plan.stealthKeypair],
-    { commitment: params.commitment ?? "confirmed" },
-  );
+  const signature = await signAndSendStealth(connection, plan.transaction, plan.signer, {
+    commitment: params.commitment ?? "confirmed",
+    lastValidBlockHeight: plan.lastValidBlockHeight,
+  });
   return { signature, amount: plan.amount };
 }

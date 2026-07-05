@@ -6,7 +6,8 @@ import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import {
   buildStealthSweepTransaction,
   buildStealthTokenSweepTransaction,
-  deriveStealthSolanaKeypairFromStealthPrivKey,
+  stealthSolanaSigner,
+  type StealthSolanaSigner,
 } from "@opaquecash/stealth-chain-solana";
 import { planStealthSweep } from "@opaquecash/stealth-chain";
 import { OpaqueClient } from "@opaquecash/opaque";
@@ -22,53 +23,42 @@ function solConn(over: Record<string, unknown> = {}): Connection {
   } as unknown as Connection;
 }
 
+/** A stealth signer from a deterministic one-time spend scalar (native ed25519, OPQ-002). */
+function signerFromScalar(fill: number): StealthSolanaSigner {
+  return stealthSolanaSigner(Uint8Array.from(Array(32).fill(fill)));
+}
+
 describe("Solana sweep", () => {
   const dest = Keypair.generate().publicKey;
 
-  it("plans a full-balance sweep (balance minus fee)", async () => {
-    const kp = Keypair.generate();
+  it("plans a full-balance sweep (balance minus fee) from the stealth signer", async () => {
+    const signer = signerFromScalar(7);
     const plan = await buildStealthSweepTransaction(solConn(), {
-      stealthKeypair: kp,
+      signer,
       destination: dest,
     });
     expect(plan.balanceLamports).toBe(1_000_000n);
     expect(plan.feeLamports).toBe(5000n);
     expect(plan.sweepLamports).toBe(995_000n);
-    expect(plan.fromPubkey.toBase58()).toBe(kp.publicKey.toBase58());
+    expect(plan.fromPubkey.toBase58()).toBe(signer.publicKey.toBase58());
     expect(plan.transaction.instructions).toHaveLength(1);
-  });
-
-  it("derives the keypair from a stealth private key", async () => {
-    const priv = Uint8Array.from(Array(32).fill(7));
-    const plan = await buildStealthSweepTransaction(solConn(), {
-      stealthPrivKey: priv,
-      destination: dest,
-    });
-    expect(plan.fromPubkey.toBase58()).toBe(
-      deriveStealthSolanaKeypairFromStealthPrivKey(priv).publicKey.toBase58(),
-    );
+    expect(plan.lastValidBlockHeight).toBe(1);
   });
 
   it("rejects zero balance and fee-exceeding balance", async () => {
-    const kp = Keypair.generate();
+    const signer = signerFromScalar(7);
     await expect(
       buildStealthSweepTransaction(solConn({ getBalance: async () => 0 }), {
-        stealthKeypair: kp,
+        signer,
         destination: dest,
       }),
     ).rejects.toThrow(/zero balance/i);
     await expect(
       buildStealthSweepTransaction(solConn({ getBalance: async () => 4000 }), {
-        stealthKeypair: kp,
+        signer,
         destination: dest,
       }),
     ).rejects.toThrow(/cover network fee/i);
-  });
-
-  it("requires a keypair or private key", async () => {
-    await expect(
-      buildStealthSweepTransaction(solConn(), { destination: dest } as never),
-    ).rejects.toThrow(/stealthKeypair or stealthPrivKey/);
   });
 });
 
@@ -76,7 +66,7 @@ describe("Solana token sweep (fee-in-token)", () => {
   const mint = Keypair.generate().publicKey;
   const dest = Keypair.generate().publicKey;
   const relayer = Keypair.generate().publicKey;
-  const stealthPrivKey = Uint8Array.from(Array(32).fill(3));
+  const signer = signerFromScalar(3);
 
   // A minimal 165-byte SPL token account holding `amount`, owned by the token program.
   function tokenConn(amount: bigint): Connection {
@@ -97,7 +87,7 @@ describe("Solana token sweep (fee-in-token)", () => {
 
   it("splits the fee to the relayer and the remainder to the destination", async () => {
     const plan = await buildStealthTokenSweepTransaction(tokenConn(1_000_000n), {
-      stealthPrivKey,
+      signer,
       mint,
       destinationOwner: dest,
       feePayer: relayer,
@@ -115,7 +105,7 @@ describe("Solana token sweep (fee-in-token)", () => {
 
   it("omits the fee transfer when fee is zero", async () => {
     const plan = await buildStealthTokenSweepTransaction(tokenConn(1_000_000n), {
-      stealthPrivKey,
+      signer,
       mint,
       destinationOwner: dest,
       feePayer: relayer,
@@ -129,7 +119,7 @@ describe("Solana token sweep (fee-in-token)", () => {
   it("rejects a fee that meets or exceeds the balance", async () => {
     await expect(
       buildStealthTokenSweepTransaction(tokenConn(1_000_000n), {
-        stealthPrivKey,
+        signer,
         mint,
         destinationOwner: dest,
         feePayer: relayer,

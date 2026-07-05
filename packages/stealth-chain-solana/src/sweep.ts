@@ -1,19 +1,19 @@
 /**
- * Sweep native SOL out of a one-time stealth account. The derived stealth keypair signs and
- * pays its own fee, so the on-chain `from` is the stealth address itself (preserving
- * unlinkability). Ported from `solana/frontend/src/lib/stealthLifecycle.ts`.
+ * Sweep native SOL out of a one-time stealth account. The stealth account signs and pays its own
+ * fee, so the on-chain `from` is the stealth address itself (preserving unlinkability). The account
+ * is controlled by a raw ed25519 scalar, so it signs via {@link StealthSolanaSigner} rather than a
+ * `Keypair`. Ported from `solana/frontend/src/lib/stealthLifecycle.ts`.
  */
 
 import {
   Connection,
-  Keypair,
   PublicKey,
   SystemProgram,
   Transaction,
-  sendAndConfirmTransaction,
   type Finality,
 } from "@solana/web3.js";
-import { deriveStealthSolanaKeypairFromStealthPrivKey } from "./stealth.js";
+import type { StealthSolanaSigner } from "./stealth.js";
+import { signAndSendStealth } from "./sign.js";
 
 /** Fallback per-signature fee (lamports) if `getFeeForMessage` returns null. */
 const DEFAULT_FEE_LAMPORTS = 5000;
@@ -26,17 +26,8 @@ export interface StealthSweepPlan {
   balanceLamports: bigint;
   feeLamports: bigint;
   sweepLamports: bigint;
-}
-
-function resolveStealthKeypair(input: {
-  stealthKeypair?: Keypair;
-  stealthPrivKey?: Uint8Array;
-}): Keypair {
-  if (input.stealthKeypair) return input.stealthKeypair;
-  if (input.stealthPrivKey) {
-    return deriveStealthSolanaKeypairFromStealthPrivKey(input.stealthPrivKey);
-  }
-  throw new Error("sweep requires stealthKeypair or stealthPrivKey");
+  /** Block height after which `transaction.recentBlockhash` expires (for confirmation). */
+  lastValidBlockHeight: number;
 }
 
 function toPubkey(v: PublicKey | string): PublicKey {
@@ -50,16 +41,14 @@ function toPubkey(v: PublicKey | string): PublicKey {
 export async function buildStealthSweepTransaction(
   connection: Connection,
   params: {
-    stealthKeypair?: Keypair;
-    /** 32-byte secp256k1 stealth private key (derives the Solana keypair). */
-    stealthPrivKey?: Uint8Array;
+    /** Signer for the one-time stealth account (from {@link stealthSolanaSigner}). */
+    signer: StealthSolanaSigner;
     destination: PublicKey | string;
     commitment?: Finality;
   },
 ): Promise<StealthSweepPlan> {
   const commitment: Finality = params.commitment ?? "confirmed";
-  const stealthKeypair = resolveStealthKeypair(params);
-  const fromPubkey = stealthKeypair.publicKey;
+  const fromPubkey = params.signer.publicKey;
   const destination = toPubkey(params.destination);
 
   const balanceLamports = BigInt(await connection.getBalance(fromPubkey, commitment));
@@ -67,7 +56,8 @@ export async function buildStealthSweepTransaction(
     throw new Error("Stealth address has zero balance.");
   }
 
-  const { blockhash } = await connection.getLatestBlockhash(commitment);
+  const { blockhash, lastValidBlockHeight } =
+    await connection.getLatestBlockhash(commitment);
   const probe = new Transaction({ feePayer: fromPubkey, recentBlockhash: blockhash }).add(
     SystemProgram.transfer({ fromPubkey, toPubkey: destination, lamports: 1 }),
   );
@@ -102,30 +92,27 @@ export async function buildStealthSweepTransaction(
     balanceLamports,
     feeLamports,
     sweepLamports,
+    lastValidBlockHeight,
   };
 }
 
 /**
- * Sweep the full SOL balance of a stealth account to `destination`, signed by the stealth
- * keypair. Returns the confirmed signature plus the swept/fee amounts.
+ * Sweep the full SOL balance of a stealth account to `destination`, signed by the stealth account.
+ * Returns the confirmed signature plus the swept/fee amounts.
  */
 export async function sweepStealthSol(
   connection: Connection,
   params: {
-    stealthKeypair?: Keypair;
-    stealthPrivKey?: Uint8Array;
+    signer: StealthSolanaSigner;
     destination: PublicKey | string;
     commitment?: Finality;
   },
 ): Promise<{ signature: string; sweepLamports: bigint; feeLamports: bigint }> {
-  const stealthKeypair = resolveStealthKeypair(params);
-  const plan = await buildStealthSweepTransaction(connection, { ...params, stealthKeypair });
-  const signature = await sendAndConfirmTransaction(
-    connection,
-    plan.transaction,
-    [stealthKeypair],
-    { commitment: params.commitment ?? "confirmed" },
-  );
+  const plan = await buildStealthSweepTransaction(connection, params);
+  const signature = await signAndSendStealth(connection, plan.transaction, params.signer, {
+    commitment: params.commitment ?? "confirmed",
+    lastValidBlockHeight: plan.lastValidBlockHeight,
+  });
   return {
     signature,
     sweepLamports: plan.sweepLamports,

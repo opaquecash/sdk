@@ -1,6 +1,6 @@
 {
   "name": "@opaquecash/opaque",
-  "version": "0.2.7",
+  "version": "0.2.8",
   "description": "Unified Opaque SDK client: config, indexer announcements, announce payloads, balances, traits",
   "type": "module",
   "main": "./dist/index.js",

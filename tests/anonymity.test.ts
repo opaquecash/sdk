@@ -24,10 +24,12 @@ async function makeClient(): Promise<OpaqueClient> {
 }
 
 describe("generateRandomMetaAddress", () => {
-  it("mints unique, point-valid 66-byte meta-addresses", () => {
+  it("mints unique, point-valid 98-byte meta-addresses (V‖S‖S_ed)", () => {
     const a = generateRandomMetaAddress();
     const b = generateRandomMetaAddress();
     expect(a).not.toBe(b);
+    // 98 bytes: 0x + 196 hex chars.
+    expect(a).toMatch(/^0x[0-9a-f]{196}$/);
     expect(parseMetaAddressValue(a)).toBe(a);
     expect(parseMetaAddressValue(b)).toBe(b);
   });

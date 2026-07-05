@@ -92,8 +92,12 @@ describe("OpaqueClient.fromWallet", () => {
       rpcUrl: "http://127.0.0.1:1",
     });
     const sig = await account.signMessage({ message: SETUP_MESSAGE });
-    const { viewingKey, spendingKey } = deriveKeysFromSignature(sig);
-    const { metaAddress } = keysToStealthMetaAddress(viewingKey, spendingKey);
+    const { viewingKey, spendingKey, solanaSpendingKey } = deriveKeysFromSignature(sig);
+    const { metaAddress } = keysToStealthMetaAddress(
+      viewingKey,
+      spendingKey,
+      solanaSpendingKey,
+    );
     expect(client.getMetaAddressHex()).toBe(stealthMetaAddressToHex(metaAddress));
     expect(client.getEthereumAddress()).toBe(account.address);
   });

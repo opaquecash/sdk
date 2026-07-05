@@ -7,7 +7,6 @@
 
 import {
   Connection,
-  Keypair,
   PublicKey,
   TransactionInstruction,
   type Finality,
@@ -38,6 +37,7 @@ import {
   fetchWormholeMessageFee,
 } from "./relay.js";
 import { sweepStealthSol } from "./sweep.js";
+import type { StealthSolanaSigner } from "./stealth.js";
 import {
   buildRegisterKeysInstruction,
   isRegistered,
@@ -122,7 +122,7 @@ export class SolanaAdapter implements ChainAdapter {
   // Solana-specific instruction builders (app's wallet layer signs + submits).
   // ---------------------------------------------------------------------------
 
-  /** Build a `register_keys` instruction for `registrant`'s 66-byte meta-address. */
+  /** Build a `register_keys` instruction for `registrant`'s 98-byte meta-address (V‖S‖S_ed). */
   buildRegisterKeysInstruction(
     registrant: PublicKey,
     stealthMetaAddress: Uint8Array,
@@ -177,13 +177,12 @@ export class SolanaAdapter implements ChainAdapter {
   }
 
   /**
-   * Sweep the full SOL balance of a one-time stealth account to `destination`. The stealth
-   * keypair signs and pays its own fee; pass the reconstructed 32-byte secp256k1 stealth
-   * private key (or the derived keypair).
+   * Sweep the full SOL balance of a one-time stealth account to `destination`. The stealth account
+   * signs and pays its own fee; pass its {@link StealthSolanaSigner} (from `stealthSolanaSigner`
+   * over the reconstructed one-time spend scalar).
    */
   async sweepStealthSol(params: {
-    stealthPrivKey?: Uint8Array;
-    stealthKeypair?: Keypair;
+    signer: StealthSolanaSigner;
     destination: PublicKey | string;
   }): Promise<{ signature: string; sweepLamports: bigint; feeLamports: bigint }> {
     return sweepStealthSol(this.connection, {

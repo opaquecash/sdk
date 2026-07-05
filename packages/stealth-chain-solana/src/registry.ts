@@ -18,12 +18,12 @@ import {
   SCHEME_ID_SECP256K1,
 } from "./programs.js";
 
-/** Byte layout of a `RegistryEntry` account before the 66-byte meta-address. */
+/** Byte layout of a `RegistryEntry` account before the meta-address. */
 const REGISTRY_ENTRY_META_OFFSET =
   8 /* discriminator */ + 32 /* registrant pubkey */ + 8 /* scheme_id u64 */ + 4 /* vec len */;
 
-/** Length of a stealth meta-address (compressed V || compressed S). */
-const META_ADDRESS_LEN = 66;
+/** Length of a stealth meta-address: compressed V (33) || compressed S (33) || ed25519 S_ed (32). */
+const META_ADDRESS_LEN = 98;
 
 /**
  * Derive the registry entry PDA for `(registrant, schemeId)`:
@@ -52,7 +52,7 @@ export function getRegistryEntryPda(
 export function buildRegisterKeysInstruction(params: {
   registryProgramId: PublicKey;
   registrant: PublicKey;
-  /** 66-byte stealth meta-address (compressed V || S). */
+  /** 98-byte stealth meta-address (compressed V || compressed S || ed25519 S_ed). */
   stealthMetaAddress: Uint8Array;
   schemeId?: bigint;
 }): TransactionInstruction {
@@ -78,7 +78,7 @@ export function buildRegisterKeysInstruction(params: {
   });
 }
 
-/** Decode the 66-byte meta-address out of raw `RegistryEntry` account data. */
+/** Decode the 98-byte meta-address out of raw `RegistryEntry` account data. */
 export function decodeRegistryEntryMetaAddress(data: Uint8Array): Hex | null {
   if (data.length < REGISTRY_ENTRY_META_OFFSET + META_ADDRESS_LEN) return null;
   const meta = data.slice(
@@ -89,7 +89,7 @@ export function decodeRegistryEntryMetaAddress(data: Uint8Array): Hex | null {
 }
 
 /**
- * Resolve a registrant's 66-byte stealth meta-address via the registry PDA, or `null` when
+ * Resolve a registrant's 98-byte stealth meta-address via the registry PDA, or `null` when
  * unregistered.
  */
 export async function resolveMetaAddress(

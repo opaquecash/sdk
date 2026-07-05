@@ -46,11 +46,17 @@ export {
 } from "./announcer.js";
 
 export {
-  deriveStealthSolanaKeypair,
+  type StealthSolanaSigner,
+  reduceScalarLE,
+  ed25519SpendPublicKey,
+  solanaStealthTweak,
+  deriveSolanaStealthPoint,
+  reconstructSolanaStealthScalar,
   deriveStealthSolanaAddress,
-  deriveStealthSolanaKeypairFromStealthPrivKey,
-  deriveStealthSolanaAddressFromStealthPrivKey,
+  stealthSolanaSigner,
 } from "./stealth.js";
+
+export { applyStealthSignature, signAndSendStealth } from "./sign.js";
 
 export {
   type StealthSweepPlan,

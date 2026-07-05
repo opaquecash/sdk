@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { Connection, PublicKey } from "@solana/web3.js";
 import { secp256k1 } from "@noble/curves/secp256k1";
+import { ed25519 } from "@noble/curves/ed25519";
 import { WORMHOLE_CHAIN_SOLANA, type Announcement } from "@opaquecash/adapter";
 import {
   // programs
@@ -23,11 +24,12 @@ import {
   decodeAnnouncementLogs,
   fetchAnnouncementsRange,
   watchAnnouncements,
-  // stealth
-  deriveStealthSolanaKeypair,
+  // stealth (native ed25519)
+  ed25519SpendPublicKey,
+  deriveSolanaStealthPoint,
+  reconstructSolanaStealthScalar,
   deriveStealthSolanaAddress,
-  deriveStealthSolanaKeypairFromStealthPrivKey,
-  deriveStealthSolanaAddressFromStealthPrivKey,
+  stealthSolanaSigner,
   // adapter
   SolanaAdapter,
   // bytes
@@ -94,7 +96,7 @@ describe("registry", () => {
   });
 
   it("builds register_keys instruction data and accounts", () => {
-    const meta = Uint8Array.from(Array(66).fill(0xcd));
+    const meta = Uint8Array.from(Array(98).fill(0xcd));
     const ix = buildRegisterKeysInstruction({
       registryProgramId,
       registrant,
@@ -113,17 +115,17 @@ describe("registry", () => {
     expect([...r.readVecU8()]).toEqual([...meta]);
   });
 
-  it("decodes a 66-byte meta-address out of a RegistryEntry account", () => {
-    const meta = Uint8Array.from(Array(66).fill(0xab));
-    const acct = new Uint8Array(8 + 32 + 8 + 4 + 66);
+  it("decodes a 98-byte meta-address out of a RegistryEntry account", () => {
+    const meta = Uint8Array.from(Array(98).fill(0xab));
+    const acct = new Uint8Array(8 + 32 + 8 + 4 + 98);
     acct.set(meta, 8 + 32 + 8 + 4);
-    expect(decodeRegistryEntryMetaAddress(acct)).toBe("0x" + "ab".repeat(66));
+    expect(decodeRegistryEntryMetaAddress(acct)).toBe("0x" + "ab".repeat(98));
     expect(decodeRegistryEntryMetaAddress(new Uint8Array(10))).toBeNull();
   });
 
   it("resolves a meta-address through a connection (and null when missing)", async () => {
-    const meta = Uint8Array.from(Array(66).fill(0x05));
-    const acct = new Uint8Array(8 + 32 + 8 + 4 + 66);
+    const meta = Uint8Array.from(Array(98).fill(0x05));
+    const acct = new Uint8Array(8 + 32 + 8 + 4 + 98);
     acct.set(meta, 52);
 
     const present = {
@@ -135,7 +137,7 @@ describe("registry", () => {
 
     expect(
       await resolveMetaAddress(present, { registryProgramId, registrant }),
-    ).toBe("0x" + "05".repeat(66));
+    ).toBe("0x" + "05".repeat(98));
     expect(await isRegistered(present, { registryProgramId, registrant })).toBe(true);
     expect(
       await resolveMetaAddress(absent, { registryProgramId, registrant }),
@@ -259,27 +261,42 @@ describe("announcer", () => {
   });
 });
 
-describe("stealth Solana destination derivation", () => {
-  it("is deterministic and agrees between pubkey and privkey paths", () => {
-    const priv = Uint8Array.from(Array(32).fill(7));
-    const uncompressed = secp256k1.getPublicKey(priv, false);
+describe("native ed25519 Solana stealth derivation (OPQ-002)", () => {
+  // A shared secp256k1 ECDH secret (33-byte compressed point) stands in for `v·R`.
+  const shared = Uint8Array.from([0x02, ...Array(32).fill(0x11)]);
 
-    const fromPub = deriveStealthSolanaKeypair(uncompressed).publicKey.toBase58();
-    const fromPriv = deriveStealthSolanaKeypairFromStealthPrivKey(priv).publicKey.toBase58();
-    expect(fromPriv).toBe(fromPub);
-    expect(deriveStealthSolanaAddress(uncompressed)).toBe(fromPub);
-    expect(deriveStealthSolanaAddressFromStealthPrivKey(priv)).toBe(fromPub);
+  it("the sender-computed address equals the recipient's reconstructed signer, and signs", () => {
+    const spendSeed = Uint8Array.from(Array(32).fill(7)); // recipient s_ed seed
+    const S_ed = ed25519SpendPublicKey(spendSeed);
 
-    // deterministic across calls
-    expect(deriveStealthSolanaAddress(uncompressed)).toBe(
-      deriveStealthSolanaAddress(uncompressed),
-    );
+    // Sender / view-only scanner: derive the address from PUBLIC material only.
+    const point = deriveSolanaStealthPoint(S_ed, shared);
+    const address = deriveStealthSolanaAddress(point);
+
+    // Recipient: reconstruct the one-time spend scalar and build the signer.
+    const scalar = reconstructSolanaStealthScalar(spendSeed, shared);
+    const signer = stealthSolanaSigner(scalar);
+    expect(signer.publicKey.toBase58()).toBe(address);
+
+    // The signer produces a standard ed25519 signature that verifies against the address.
+    const msg = Uint8Array.from(Array(48).fill(9));
+    const sig = signer.sign(msg);
+    expect(sig).toHaveLength(64);
+    expect(ed25519.verify(sig, msg, point)).toBe(true);
   });
 
-  it("maps distinct stealth points to distinct destinations", () => {
-    const a = secp256k1.getPublicKey(Uint8Array.from(Array(32).fill(7)), false);
-    const b = secp256k1.getPublicKey(Uint8Array.from(Array(32).fill(9)), false);
+  it("maps distinct shared secrets to distinct destinations", () => {
+    const S_ed = ed25519SpendPublicKey(Uint8Array.from(Array(32).fill(3)));
+    const a = deriveSolanaStealthPoint(S_ed, Uint8Array.from([0x02, ...Array(32).fill(1)]));
+    const b = deriveSolanaStealthPoint(S_ed, Uint8Array.from([0x02, ...Array(32).fill(2)]));
     expect(deriveStealthSolanaAddress(a)).not.toBe(deriveStealthSolanaAddress(b));
+  });
+
+  it("binds the spend scalar to s_ed: the payer (lacking s_ed) cannot derive it", () => {
+    // OPQ-002 regression: the address is public-derivable, the spend scalar is not.
+    const s1 = reconstructSolanaStealthScalar(Uint8Array.from(Array(32).fill(7)), shared);
+    const s2 = reconstructSolanaStealthScalar(Uint8Array.from(Array(32).fill(8)), shared);
+    expect(Buffer.from(s1).equals(Buffer.from(s2))).toBe(false);
   });
 });
 
@@ -294,8 +311,8 @@ describe("SolanaAdapter", () => {
 
   it("delegates fetch/resolve to its connection and builds instructions", async () => {
     const line = progDataLine(encodeAnnouncementEventData(sampleEvent()));
-    const meta = Uint8Array.from(Array(66).fill(0x05));
-    const acct = new Uint8Array(8 + 32 + 8 + 4 + 66);
+    const meta = Uint8Array.from(Array(98).fill(0x05));
+    const acct = new Uint8Array(8 + 32 + 8 + 4 + 98);
     acct.set(meta, 52);
     const conn = {
       getSignaturesForAddress: async () => [{ signature: "s", slot: 1, err: null }],
@@ -305,7 +322,7 @@ describe("SolanaAdapter", () => {
 
     const adapter = new SolanaAdapter({ connection: conn });
     expect(await adapter.fetchAnnouncements({ limit: 5 })).toHaveLength(1);
-    expect(await adapter.resolveMetaAddress(DEVNET_REGISTRY)).toBe("0x" + "05".repeat(66));
+    expect(await adapter.resolveMetaAddress(DEVNET_REGISTRY)).toBe("0x" + "05".repeat(98));
     expect(await adapter.isRegistered(DEVNET_REGISTRY)).toBe(true);
 
     const ix = adapter.buildAnnounceInstruction({

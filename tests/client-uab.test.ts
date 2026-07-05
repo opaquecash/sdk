@@ -98,8 +98,8 @@ describe("OpaqueClient.registerMetaAddress", () => {
   });
 
   it("reads Solana registration status from the registry PDA", async () => {
-    const meta = Uint8Array.from(Array(66).fill(0x05));
-    const acct = new Uint8Array(8 + 32 + 8 + 4 + 66);
+    const meta = Uint8Array.from(Array(98).fill(0x05));
+    const acct = new Uint8Array(8 + 32 + 8 + 4 + 98);
     acct.set(meta, 52);
     const registered = {
       getSignaturesForAddress: async () => [],
@@ -250,8 +250,14 @@ describe("OpaqueClient.createViewOnly", () => {
 
   it("reconstructs the same meta-address but cannot spend", async () => {
     const full = await OpaqueClient.create(baseConfig);
-    const { viewingKey, spendingKey } = deriveKeysFromSignature(baseConfig.walletSignature);
-    const { S } = keysToStealthMetaAddress(viewingKey, spendingKey);
+    const { viewingKey, spendingKey, solanaSpendingKey } = deriveKeysFromSignature(
+      baseConfig.walletSignature,
+    );
+    const { S, solanaSpendPubKey } = keysToStealthMetaAddress(
+      viewingKey,
+      spendingKey,
+      solanaSpendingKey,
+    );
 
     const viewer = await OpaqueClient.createViewOnly(
       {
@@ -259,7 +265,7 @@ describe("OpaqueClient.createViewOnly", () => {
         rpcUrl: baseConfig.rpcUrl,
         ethereumAddress: baseConfig.ethereumAddress,
       },
-      { viewingKey, spendPublicKey: S },
+      { viewingKey, spendPublicKey: S, solanaSpendPublicKey: solanaSpendPubKey },
     );
 
     expect(viewer.isViewOnly).toBe(true);

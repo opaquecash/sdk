@@ -8,6 +8,11 @@ import { hkdf } from "@noble/hashes/hkdf";
 import { sha256 } from "@noble/hashes/sha2";
 import type { Hex } from "viem";
 import { getAddress, type Address } from "viem";
+import {
+  ed25519SpendPublicKey,
+  deriveSolanaStealthPoint,
+  reconstructSolanaStealthScalar,
+} from "@opaquecash/stealth-chain-solana";
 
 const CURVE = secp256k1;
 const DOMAIN = "opaque-cash-v1";
@@ -23,6 +28,8 @@ export const SETUP_MESSAGE =
 export function deriveKeysFromSignature(signatureHex: Hex): {
   viewingKey: Uint8Array;
   spendingKey: Uint8Array;
+  /** 32-byte seed for the ed25519 Solana spend key `s_ed` (CSAP §2.3). */
+  solanaSpendingKey: Uint8Array;
 } {
   const sigBytes =
     typeof signatureHex === "string"
@@ -32,20 +39,30 @@ export function deriveKeysFromSignature(signatureHex: Hex): {
       : signatureHex;
   const sig =
     typeof sigBytes === "string" ? hexToBytes(sigBytes) : sigBytes;
-  const okm = hkdf(sha256, sig, undefined, DOMAIN, 64);
-  return { viewingKey: okm.slice(0, 32), spendingKey: okm.slice(32, 64) };
+  // Expand to 96 bytes: the first 64 are unchanged from the original 64-byte
+  // expansion (HKDF-Expand is a prefix stream), so existing viewing/spending
+  // keys are byte-identical; the third block adds the Solana ed25519 spend seed.
+  const okm = hkdf(sha256, sig, undefined, DOMAIN, 96);
+  return {
+    viewingKey: okm.slice(0, 32),
+    spendingKey: okm.slice(32, 64),
+    solanaSpendingKey: okm.slice(64, 96),
+  };
 }
 
 export function keysToStealthMetaAddress(
   viewingKey: Uint8Array,
   spendingKey: Uint8Array,
-): { V: Uint8Array; S: Uint8Array; metaAddress: Uint8Array } {
+  solanaSpendingKey: Uint8Array,
+): { V: Uint8Array; S: Uint8Array; solanaSpendPubKey: Uint8Array; metaAddress: Uint8Array } {
   const V = CURVE.getPublicKey(viewingKey, true);
   const S = CURVE.getPublicKey(spendingKey, true);
-  const metaAddress = new Uint8Array(V.length + S.length);
+  const solanaSpendPubKey = ed25519SpendPublicKey(solanaSpendingKey);
+  const metaAddress = new Uint8Array(V.length + S.length + solanaSpendPubKey.length);
   metaAddress.set(V, 0);
   metaAddress.set(S, V.length);
-  return { V, S, metaAddress };
+  metaAddress.set(solanaSpendPubKey, V.length + S.length);
+  return { V, S, solanaSpendPubKey, metaAddress };
 }
 
 export function stealthMetaAddressToHex(metaAddress: Uint8Array): Hex {
@@ -53,21 +70,30 @@ export function stealthMetaAddressToHex(metaAddress: Uint8Array): Hex {
 }
 
 /**
- * Build the 66-byte meta-address for view-only delegation (CSAP §2.8): the scanner holds the
- * viewing PRIVATE key `v` and the spending PUBLIC key `S`, never the spending private key. The
- * viewing public key `V = v·G` is derived here; the result `V‖S` matches
- * {@link keysToStealthMetaAddress}.
+ * Build the meta-address for view-only delegation (CSAP §2.8): the scanner holds the viewing
+ * PRIVATE key `v` and the spending PUBLIC key `S` (plus the ed25519 Solana spend PUBLIC key `S_ed`
+ * for Solana scanning), never any spending private key. The viewing public key `V = v·G` is derived
+ * here; the result `V‖S[‖S_ed]` matches {@link keysToStealthMetaAddress}. Omit `solanaSpendPubKey`
+ * for an Ethereum-only (66-byte) delegation.
  */
 export function viewOnlyMetaAddress(
   viewingKey: Uint8Array,
   spendPubKey: Uint8Array,
-): { V: Uint8Array; S: Uint8Array; metaAddress: Uint8Array } {
+  solanaSpendPubKey?: Uint8Array,
+): { V: Uint8Array; S: Uint8Array; solanaSpendPubKey?: Uint8Array; metaAddress: Uint8Array } {
   assertCompressedPubkey33("spendPubKey", spendPubKey);
+  if (solanaSpendPubKey && solanaSpendPubKey.length !== 32) {
+    throw new Error(
+      `Opaque: solanaSpendPubKey must be 32 bytes (ed25519), got ${solanaSpendPubKey.length}`,
+    );
+  }
   const V = CURVE.getPublicKey(viewingKey, true);
-  const metaAddress = new Uint8Array(V.length + spendPubKey.length);
+  const tail = solanaSpendPubKey ?? new Uint8Array(0);
+  const metaAddress = new Uint8Array(V.length + spendPubKey.length + tail.length);
   metaAddress.set(V, 0);
   metaAddress.set(spendPubKey, V.length);
-  return { V, S: spendPubKey, metaAddress };
+  if (tail.length) metaAddress.set(tail, V.length + spendPubKey.length);
+  return { V, S: spendPubKey, solanaSpendPubKey, metaAddress };
 }
 
 /**
@@ -78,13 +104,20 @@ export function viewOnlyMetaAddress(
 export function generateRandomMetaAddress(): Hex {
   const viewingKey = CURVE.utils.randomPrivateKey();
   const spendingKey = CURVE.utils.randomPrivateKey();
-  const { metaAddress } = keysToStealthMetaAddress(viewingKey, spendingKey);
+  const solanaSpendingKey = CURVE.utils.randomPrivateKey();
+  const { metaAddress } = keysToStealthMetaAddress(
+    viewingKey,
+    spendingKey,
+    solanaSpendingKey,
+  );
   return stealthMetaAddressToHex(metaAddress);
 }
 
 export function parseStealthMetaAddress(metaHex: Hex): {
   viewPubKey: Uint8Array;
   spendPubKey: Uint8Array;
+  /** ed25519 Solana spend public key `S_ed`; present only for a 98-byte meta-address. */
+  solanaSpendPubKey?: Uint8Array;
 } {
   const raw =
     typeof metaHex === "string" && metaHex.startsWith("0x")
@@ -92,11 +125,12 @@ export function parseStealthMetaAddress(metaHex: Hex): {
       : metaHex;
   const bytes = hexToBytes(raw);
   if (bytes.length < 66) {
-    throw new Error("Invalid stealth meta-address: expected 66 bytes");
+    throw new Error("Invalid stealth meta-address: expected at least 66 bytes");
   }
   return {
     viewPubKey: bytes.slice(0, 33),
     spendPubKey: bytes.slice(33, 66),
+    solanaSpendPubKey: bytes.length >= 98 ? bytes.slice(66, 98) : undefined,
   };
 }
 
@@ -180,26 +214,52 @@ export function recipientStealthPoint(
   viewingKey: Uint8Array,
   spendPubKey: Uint8Array,
   ephemeralPubKey: Uint8Array,
-): { stealthAddress: Address; stealthPubKeyUncompressed: Uint8Array; viewTag: number } {
+  solanaSpendPubKey?: Uint8Array,
+): {
+  stealthAddress: Address;
+  stealthPubKeyUncompressed: Uint8Array;
+  /** 32-byte ed25519 Solana stealth address point; present when `solanaSpendPubKey` is given. */
+  solanaStealthPubKey?: Uint8Array;
+  viewTag: number;
+} {
   const shared = sharedSecretRecipient(viewingKey, ephemeralPubKey);
   const { sH, viewTag } = hashSharedSecret(shared);
   const { stealthAddress, stealthPubKeyUncompressed } = stealthPointAndAddress(
     spendPubKey,
     sH,
   );
-  return { stealthAddress, stealthPubKeyUncompressed, viewTag };
+  const solanaStealthPubKey = solanaSpendPubKey
+    ? deriveSolanaStealthPoint(solanaSpendPubKey, shared)
+    : undefined;
+  return { stealthAddress, stealthPubKeyUncompressed, solanaStealthPubKey, viewTag };
+}
+
+/**
+ * Recipient-side reconstruction of the one-time ed25519 Solana spend scalar for an owned output,
+ * from the wallet's 32-byte Solana spend seed and the output's ephemeral public key. Feed the
+ * result to `stealthSolanaSigner`. Requires the Solana spend seed (not available view-only).
+ */
+export function reconstructSolanaSpendScalar(
+  solanaSpendingKey: Uint8Array,
+  viewingKey: Uint8Array,
+  ephemeralPubKey: Uint8Array,
+): Uint8Array {
+  const shared = sharedSecretRecipient(viewingKey, ephemeralPubKey);
+  return reconstructSolanaStealthScalar(solanaSpendingKey, shared);
 }
 
 export function computeStealthAddressAndViewTag(recipientMetaAddressHex: Hex): {
   ephemeralPriv: Uint8Array;
   ephemeralPubKey: Uint8Array;
   stealthAddress: Address;
-  /** Uncompressed (65-byte) stealth public-key point; used to derive the Solana destination. */
+  /** Uncompressed (65-byte) secp256k1 stealth public-key point (Ethereum). */
   stealthPubKeyUncompressed: Uint8Array;
+  /** 32-byte ed25519 Solana stealth address point; present when the meta-address carries `S_ed`. */
+  solanaStealthPubKey?: Uint8Array;
   viewTag: number;
   metadata: Uint8Array;
 } {
-  const { viewPubKey, spendPubKey } =
+  const { viewPubKey, spendPubKey, solanaSpendPubKey } =
     parseStealthMetaAddress(recipientMetaAddressHex);
   const ephemeralPriv = CURVE.utils.randomPrivateKey();
   const ephemeralPubKey = CURVE.getPublicKey(ephemeralPriv, true);
@@ -209,6 +269,9 @@ export function computeStealthAddressAndViewTag(recipientMetaAddressHex: Hex): {
     spendPubKey,
     sH,
   );
+  const solanaStealthPubKey = solanaSpendPubKey
+    ? deriveSolanaStealthPoint(solanaSpendPubKey, shared)
+    : undefined;
   const metadata = new Uint8Array(1);
   metadata[0] = viewTag;
   return {
@@ -216,6 +279,7 @@ export function computeStealthAddressAndViewTag(recipientMetaAddressHex: Hex): {
     ephemeralPubKey,
     stealthAddress,
     stealthPubKeyUncompressed,
+    solanaStealthPubKey,
     viewTag,
     metadata,
   };
@@ -243,13 +307,14 @@ export function recomputeStealthSendFromEphemeralPrivateKey(
   ephemeralPubKey: Uint8Array;
   stealthAddress: Address;
   stealthPubKeyUncompressed: Uint8Array;
+  solanaStealthPubKey?: Uint8Array;
   viewTag: number;
   metadata: Uint8Array;
 } {
   if (ephemeralPrivateKey.length !== 32) {
     throw new Error("Ephemeral private key must be 32 bytes.");
   }
-  const { viewPubKey, spendPubKey } =
+  const { viewPubKey, spendPubKey, solanaSpendPubKey } =
     parseStealthMetaAddress(recipientMetaAddressHex);
   const ephemeralPriv = ephemeralPrivateKey;
   const ephemeralPubKey = CURVE.getPublicKey(ephemeralPriv, true);
@@ -259,6 +324,9 @@ export function recomputeStealthSendFromEphemeralPrivateKey(
     spendPubKey,
     sH,
   );
+  const solanaStealthPubKey = solanaSpendPubKey
+    ? deriveSolanaStealthPoint(solanaSpendPubKey, shared)
+    : undefined;
   const metadata = new Uint8Array(1);
   metadata[0] = viewTag;
   return {
@@ -266,6 +334,7 @@ export function recomputeStealthSendFromEphemeralPrivateKey(
     ephemeralPubKey,
     stealthAddress,
     stealthPubKeyUncompressed,
+    solanaStealthPubKey,
     viewTag,
     metadata,
   };
