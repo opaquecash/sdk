@@ -51,8 +51,8 @@ export const ONS_CLAIM_DISCRIMINATOR = sha256(
 const ixDiscriminator = (name: string): Uint8Array =>
   sha256(new TextEncoder().encode(`global:${name}`)).subarray(0, 8);
 
-/** Total `OnsRecord` account length: 8 (discriminator) + 167 (fields). */
-const ONS_RECORD_LEN = 8 + 32 + 33 + 33 + 20 + 32 + 8 + 8 + 1;
+/** Total `OnsRecord` account length: 8 (discriminator) + 168 (fields, incl. `revoked`). */
+const ONS_RECORD_LEN = 8 + 32 + 33 + 33 + 20 + 32 + 8 + 8 + 1 + 1;
 
 /** A mirrored ONS name record (spec/ONS.md §3). */
 export interface OnsMirrorRecord {
@@ -72,6 +72,8 @@ export interface OnsMirrorRecord {
   wormholeSequence: bigint;
   /** Unix seconds of the last applied update (mirror-side clock). */
   updatedAt: number;
+  /** True when the name was revoked: a tombstone with zeroed keys; do not resolve it. */
+  revoked: boolean;
 }
 
 /** `keccak256` of the lowercase full name — the mirror PDA key (spec/ONS.md §1.3). */
@@ -112,6 +114,7 @@ export function decodeOnsMirrorRecord(data: Uint8Array): OnsMirrorRecord | null 
     solAuthority: authority.equals(PublicKey.default) ? null : authority,
     wormholeSequence: view.getBigUint64(158, true),
     updatedAt: Number(view.getBigInt64(166, true)),
+    revoked: data[175] !== 0,
   };
 }
 
@@ -127,7 +130,11 @@ export async function fetchOnsMirrorRecord(
   const pda = getOnsMirrorRecordPda(mirrorProgramId, fullName);
   const info = await connection.getAccountInfo(pda);
   if (!info || !info.owner.equals(mirrorProgramId)) return null;
-  return decodeOnsMirrorRecord(info.data);
+  const record = decodeOnsMirrorRecord(info.data);
+  // A revoked record is a tombstone (zeroed keys) kept only to hold the sequence
+  // floor — treat it as unresolved so no one derives a payment to the revoked name.
+  if (record?.revoked) return null;
+  return record;
 }
 
 // ---------------------------------------------------------------------------

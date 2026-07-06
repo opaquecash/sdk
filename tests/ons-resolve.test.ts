@@ -41,8 +41,12 @@ const SPEND = secp256k1.getPublicKey(new Uint8Array(32).fill(6), true);
 const META = `0x${bytesToHex(VIEW)}${bytesToHex(SPEND)}` as `0x${string}`;
 
 /** Craft an `OnsRecord` account image (layout from programs/ons-mirror). */
-function onsRecordData(opts: { name: string; solAuthority?: Uint8Array }): Uint8Array {
-  const data = new Uint8Array(8 + 167);
+function onsRecordData(opts: {
+  name: string;
+  solAuthority?: Uint8Array;
+  revoked?: boolean;
+}): Uint8Array {
+  const data = new Uint8Array(8 + 168);
   data.set(createHash("sha256").update("account:OnsRecord").digest().subarray(0, 8), 0);
   data.set(onsNameHash(opts.name), 8);
   data.set(SPEND, 40); // spend_pubkey
@@ -52,6 +56,7 @@ function onsRecordData(opts: { name: string; solAuthority?: Uint8Array }): Uint8
   const dv = new DataView(data.buffer);
   dv.setBigUint64(8 + 150, 7n, true); // wormhole_sequence
   dv.setBigInt64(8 + 158, 1_700_000_000n, true); // updated_at
+  if (opts.revoked) data[8 + 167] = 1; // revoked flag
   return data;
 }
 
@@ -107,6 +112,14 @@ describe("ons mirror record decode + PDA derivation", () => {
     expect(rec.ethOwner).toBe(`0x${"33".repeat(20)}`);
     expect(rec.solAuthority).toBeNull();
     expect(rec.wormholeSequence).toBe(7n);
+    expect(rec.revoked).toBe(false);
+  });
+
+  it("decodes a revoked tombstone with the revoked flag set", () => {
+    const rec = decodeOnsMirrorRecord(
+      onsRecordData({ name: `alice.${PARENT}`, revoked: true }),
+    )!;
+    expect(rec.revoked).toBe(true);
   });
 
   it("surfaces a claimer authority and rejects foreign accounts", () => {
