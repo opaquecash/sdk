@@ -41,10 +41,12 @@ export interface CircuitWitness {
  * Inputs for {@link buildWitnessV2}. The leaf commits to
  * `Poseidon(stealth_pk, schema_id, issuer_pk_x, trait_data_hash, nonce)`.
  *
- * `issuerPkX`, `traitDataHash`, and `nonce` come from the attestation context.
- * When omitted, deterministic dev-mode values are derived so the same
- * (holder, schema) pair always rebuilds the same leaf — and therefore the same
- * Merkle root, keeping a previously registered dev root valid across sessions.
+ * `issuerPkX`, `traitDataHash`, and `nonce` come from the real attestation context
+ * (the scanner's `merkleLeafPreimage`) and are **required on the production path**.
+ * The `nonce` in particular is a random leaf-blinding secret and MUST NOT be
+ * derived from public data — a deterministic nonce enables leaf enumeration
+ * (OPQ-038). Omitting any of the three is only permitted under `devMode: true`,
+ * which derives deterministic zero-hash-tree defaults for local development.
  */
 export interface BuildWitnessV2Params {
   /** Numeric trait/schema id — becomes both `schema_id` and the public `attestation_id`. */
@@ -53,20 +55,32 @@ export interface BuildWitnessV2Params {
   stealthPrivKeyBytes: Uint8Array;
   /** External nullifier as a decimal string (action scope). */
   externalNullifier: string;
-  /** Issuer's BabyJubJub x-coordinate as a field element. Dev default derived from the schema id. */
+  /** Issuer's BabyJubJub x-coordinate as a field element. Required unless `devMode`. */
   issuerPkX?: string | bigint;
-  /** Poseidon hash of the attestation data payload. Dev default derived from the schema id. */
+  /** Poseidon hash of the attestation data payload. Required unless `devMode`. */
   traitDataHash?: string | bigint;
-  /** Leaf-blinding secret. Dev default: `Poseidon(stealth_pk, schema_id)` (deterministic). */
+  /** Random leaf-blinding secret from issuance. Required unless `devMode`. */
   nonce?: string | bigint;
+  /**
+   * Development-only escape hatch. When `true`, any omitted `issuerPkX` /
+   * `traitDataHash` / `nonce` is filled with a deterministic default so the same
+   * (holder, schema) pair always rebuilds the same dev leaf/root. NEVER enable on
+   * a production path: the deterministic nonce is derivable from public data and
+   * weakens unlinkability (OPQ-038).
+   */
+  devMode?: boolean;
 }
 
 /**
- * Build a **dev-mode** V2 Merkle witness: the trait's leaf sits at index 0 of an
- * otherwise-empty zero-hash tree, so the resulting `merkle_root` is exactly what
- * the verifier admin registers for this leaf via `update_merkle_root` /
- * `submitMerkleRoot`. Production indexers must build the real announcement tree
- * with the identical leaf formula.
+ * Build a V2 Merkle witness: the trait's leaf sits at index 0 of an otherwise-empty
+ * zero-hash tree, so the resulting `merkle_root` is exactly what the verifier admin
+ * registers for this leaf via `update_merkle_root` / `submitMerkleRoot`. Production
+ * indexers must build the real announcement tree with the identical leaf formula.
+ *
+ * Requires the real leaf preimage (`issuerPkX`, `traitDataHash`, `nonce`); pass
+ * `devMode: true` to derive deterministic dev defaults for any omitted field.
+ *
+ * @throws if a preimage field is missing and `devMode` is not enabled.
  */
 export async function buildWitnessV2(
   params: BuildWitnessV2Params,
@@ -85,12 +99,26 @@ export async function buildWitnessV2(
   const extNullifier = toField(BigInt(params.externalNullifier));
   const stealthPk = F.toObject(F.e(bytesToBigInt(params.stealthPrivKeyBytes))) as bigint;
 
-  const issuerPkX =
-    params.issuerPkX !== undefined ? BigInt(params.issuerPkX) : H([schemaId, 1n]);
-  const traitDataHash =
-    params.traitDataHash !== undefined ? BigInt(params.traitDataHash) : H([schemaId, 2n]);
-  const nonce =
-    params.nonce !== undefined ? BigInt(params.nonce) : H([stealthPk, schemaId]);
+  const requirePreimage = (
+    name: string,
+    explicit: string | bigint | undefined,
+    devDefault: () => bigint,
+  ): bigint => {
+    if (explicit !== undefined) return BigInt(explicit);
+    if (!params.devMode) {
+      throw new Error(
+        `buildWitnessV2: "${name}" is required. Supply the real attestation leaf preimage ` +
+          `(issuerPkX/traitDataHash/nonce, e.g. from a DiscoveredTrait's merkleLeafPreimage), ` +
+          `or pass devMode: true for local development. The leaf nonce MUST be random and ` +
+          `MUST NOT be derived from public data (OPQ-038).`,
+      );
+    }
+    return devDefault();
+  };
+
+  const issuerPkX = requirePreimage("issuerPkX", params.issuerPkX, () => H([schemaId, 1n]));
+  const traitDataHash = requirePreimage("traitDataHash", params.traitDataHash, () => H([schemaId, 2n]));
+  const nonce = requirePreimage("nonce", params.nonce, () => H([stealthPk, schemaId]));
 
   // leaf = Poseidon(stealth_pk, schema_id, issuer_pk_x, trait_data_hash, nonce)
   const leaf = H([stealthPk, schemaId, issuerPkX, traitDataHash, nonce]);

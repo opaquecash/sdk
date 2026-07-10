@@ -1,5 +1,7 @@
 import type { ProofData } from "@opaquecash/psr-core";
 import { ProofError } from "@opaquecash/psr-core";
+import type { ArtifactIntegrity } from "./integrity.js";
+import { verifyArtifactDigest } from "./integrity.js";
 import type { CircuitWitness } from "./witness.js";
 
 // snarkjs ships without TypeScript types
@@ -14,6 +16,44 @@ export interface ArtifactPaths {
   wasmPath: string;
   /** Path/URL to final `.zkey`. */
   zkeyPath: string;
+  /**
+   * Optional expected SHA-256 digests. When provided, the artifact bytes are
+   * fetched, hashed, and verified before snarkjs runs the wasm over the secret
+   * witness — a mismatch throws (fail-closed). Strongly recommended whenever the
+   * artifacts are loaded from a remote origin (OPQ-030).
+   */
+  integrity?: ArtifactIntegrity;
+}
+
+/** Fetch an artifact's bytes (http(s) via `fetch`, local paths via `node:fs` in Node). */
+async function fetchArtifactBytes(pathOrUrl: string): Promise<Uint8Array> {
+  const isHttp = /^https?:\/\//i.test(pathOrUrl);
+  if (!isHttp && typeof process !== "undefined" && process.versions?.node) {
+    const { readFile } = await import("node:fs/promises");
+    return new Uint8Array(await readFile(pathOrUrl));
+  }
+  const res = await fetch(pathOrUrl);
+  if (!res.ok) {
+    throw new ProofError(
+      `Failed to fetch proving artifact ${pathOrUrl}: HTTP ${res.status} ${res.statusText}`,
+    );
+  }
+  return new Uint8Array(await res.arrayBuffer());
+}
+
+/**
+ * Return the value handed to snarkjs for one artifact: the original path/URL when
+ * no digest is pinned (snarkjs streams it), or the verified in-memory bytes when a
+ * digest is provided. snarkjs' `fastfile` accepts a `Uint8Array` as an in-memory file.
+ */
+async function resolveProvingArtifact(
+  pathOrUrl: string,
+  expectedSha256: string | undefined,
+  label: string,
+): Promise<string | Uint8Array> {
+  if (!expectedSha256) return pathOrUrl;
+  const bytes = await fetchArtifactBytes(pathOrUrl);
+  return verifyArtifactDigest(bytes, expectedSha256, label);
 }
 
 /**
@@ -38,12 +78,12 @@ export async function generateGroth16Proof(
   onProgress?: ProofProgressCallback,
 ): Promise<ProofData> {
   onProgress?.("generating-proof", 10);
+  const [wasm, zkey] = await Promise.all([
+    resolveProvingArtifact(artifacts.wasmPath, artifacts.integrity?.wasmSha256, "wasm"),
+    resolveProvingArtifact(artifacts.zkeyPath, artifacts.integrity?.zkeySha256, "zkey"),
+  ]);
   const snarkjs = (await import("snarkjs")).groth16 as SnarkGroth16;
-  const { proof, publicSignals } = await snarkjs.fullProve(
-    witness,
-    artifacts.wasmPath,
-    artifacts.zkeyPath,
-  );
+  const { proof, publicSignals } = await snarkjs.fullProve(witness, wasm, zkey);
   onProgress?.("generating-proof", 90);
 
   if (publicSignals.length !== 4) {

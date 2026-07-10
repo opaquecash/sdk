@@ -32,6 +32,7 @@ describe("psr-prover V2", () => {
       attestationId: 42,
       stealthPrivKeyBytes,
       externalNullifier: "7",
+      devMode: true,
     });
     expect(w.schema_id).toBe("42");
     expect(w.attestation_id).toBe("42");
@@ -44,9 +45,30 @@ describe("psr-prover V2", () => {
       attestationId: 42,
       stealthPrivKeyBytes,
       externalNullifier: "7",
+      devMode: true,
     });
     expect(w2.merkle_root).toBe(w.merkle_root);
     expect(w2.nonce).toBe(w.nonce);
+  });
+
+  it("throws when a leaf preimage is missing and devMode is not set (OPQ-038)", async () => {
+    await expect(
+      buildWitnessV2({ attestationId: 42, stealthPrivKeyBytes, externalNullifier: "7" }),
+    ).rejects.toThrow(/required/);
+  });
+
+  it("accepts an explicit random nonce without devMode", async () => {
+    const w = await buildWitnessV2({
+      attestationId: 42,
+      stealthPrivKeyBytes,
+      externalNullifier: "7",
+      issuerPkX: 123n,
+      traitDataHash: 456n,
+      nonce: 789n,
+    });
+    expect(w.issuer_pk_x).toBe("123");
+    expect(w.trait_data_hash).toBe("456");
+    expect(w.nonce).toBe("789");
   });
 
   it.skipIf(!artifactsPresent)(
@@ -57,6 +79,7 @@ describe("psr-prover V2", () => {
         stealthPrivKeyBytes,
         externalNullifier: "7",
         artifacts: { wasmPath: WASM, zkeyPath: ZKEY },
+        devMode: true,
       });
 
       expect(proofData.publicSignals).toHaveLength(4);

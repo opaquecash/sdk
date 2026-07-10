@@ -17,6 +17,9 @@
   "engines": {
     "node": ">=18"
   },
+  "overrides": {
+    "ws": "^8.21.0"
+  },
   "devDependencies": {
     "@testing-library/react": "^16.3.2",
     "@types/node": "^22.9.0",

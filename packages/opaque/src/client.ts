@@ -150,6 +150,7 @@ import {
 import {
   ensureBufferPolyfill,
   generateReputationProof as runGenerateReputationProof,
+  type ArtifactIntegrity,
   type ArtifactPaths,
   type ProofProgressCallback,
 } from "@opaquecash/psr-prover";
@@ -3053,6 +3054,14 @@ export class OpaqueClient {
     traitDataHash?: string | bigint;
     nonce?: string | bigint;
     artifacts?: ArtifactPaths;
+    /**
+     * Expected SHA-256 digests for the proving artifacts, verified before snarkjs
+     * runs the wasm over the secret witness (OPQ-030). Recommended for the default
+     * remote origin.
+     */
+    integrity?: ArtifactIntegrity;
+    /** Development-only: allow deterministic dev leaf-preimage defaults (OPQ-038). Never in production. */
+    devMode?: boolean;
     onProgress?: ProofProgressCallback;
   }): Promise<ProofData> {
     await ensureBufferPolyfill();
@@ -3064,6 +3073,8 @@ export class OpaqueClient {
       traitDataHash: params.traitDataHash ?? params.trait.merkleLeafPreimage?.traitDataHash,
       nonce: params.nonce ?? params.trait.merkleLeafPreimage?.nonceField,
       artifacts: params.artifacts,
+      integrity: params.integrity,
+      devMode: params.devMode,
       onProgress: params.onProgress,
     });
   }

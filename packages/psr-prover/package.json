@@ -1,6 +1,6 @@
 {
   "name": "@opaquecash/psr-prover",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Circom witness helpers and Groth16 proving (snarkjs) for PSR",
   "type": "module",
   "main": "./dist/index.js",

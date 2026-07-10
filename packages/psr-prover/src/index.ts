@@ -19,6 +19,12 @@ export {
   verifyProofLocally,
 } from "./prove.js";
 
+export type { ArtifactIntegrity } from "./integrity.js";
+export {
+  sha256Hex,
+  verifyArtifactDigest,
+} from "./integrity.js";
+
 export {
   DEFAULT_REPUTATION_ARTIFACT_PATHS,
   DEFAULT_REPUTATION_ARTIFACTS_ORIGIN,
