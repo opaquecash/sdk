@@ -1,3 +1,4 @@
+import { toField } from "@opaquecash/psr-core";
 import { Buffer } from "buffer";
 
 const TREE_DEPTH = 20;
@@ -76,8 +77,12 @@ export async function buildWitnessV2(
   const F = poseidon.F;
   const H = (inputs: bigint[]): bigint => F.toObject(poseidon(inputs)) as bigint;
 
-  const schemaId = BigInt(params.attestationId);
-  const extNullifier = BigInt(params.externalNullifier);
+  // Reduce into the BN254 field so the Poseidon preimage, the witness signal, and the
+  // on-chain public input all use the identical value — a 256-bit schema_id / external
+  // nullifier otherwise commits to `value mod r` in the proof but is submitted un-reduced,
+  // and the verifier's checkField rejects it (OPQ-008).
+  const schemaId = toField(BigInt(params.attestationId));
+  const extNullifier = toField(BigInt(params.externalNullifier));
   const stealthPk = F.toObject(F.e(bytesToBigInt(params.stealthPrivKeyBytes))) as bigint;
 
   const issuerPkX =

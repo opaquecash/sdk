@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { keccak256, stringToBytes } from "viem";
-import { buildActionScope, externalNullifierFromScope } from "@opaquecash/psr-core";
+import { buildActionScope, externalNullifierFromScope, FIELD } from "@opaquecash/psr-core";
 
 describe("PSR action scope", () => {
   it("builds a deterministic scope string", () => {
@@ -9,9 +9,12 @@ describe("PSR action scope", () => {
     expect(a).toBe(b);
   });
 
-  it("derives the external nullifier as BigInt(keccak256(scope))", () => {
+  it("derives the external nullifier as keccak256(scope) reduced into the BN254 field (OPQ-008)", () => {
     const scope = buildActionScope({ chainId: 1, module: "loan", actionId: "abc" });
-    expect(externalNullifierFromScope(scope)).toBe(BigInt(keccak256(stringToBytes(scope))));
+    const nullifier = externalNullifierFromScope(scope);
+    // Reduced, so it is a valid Groth16 public signal the on-chain verifier will accept.
+    expect(nullifier).toBe(BigInt(keccak256(stringToBytes(scope))) % FIELD);
+    expect(nullifier).toBeLessThan(FIELD);
   });
 
   it("different actions produce different nullifiers", () => {

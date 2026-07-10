@@ -6,7 +6,7 @@
  * @packageDocumentation
  */
 
-export { PSR_CIRCUIT_VERSION } from "./scope.js";
+export { PSR_CIRCUIT_VERSION, FIELD, toField } from "./scope.js";
 export { buildActionScope, externalNullifierFromScope } from "./scope.js";
 
 export type {

@@ -9,7 +9,7 @@ import type {
 } from "viem";
 import { toHex } from "viem";
 import type { ProofData } from "@opaquecash/psr-core";
-import { NullifierUsedError, RootExpiredError } from "@opaquecash/psr-core";
+import { NullifierUsedError, RootExpiredError, toField } from "@opaquecash/psr-core";
 import { opaqueReputationVerifierAbi } from "./abi.js";
 
 /**
@@ -85,8 +85,10 @@ export async function simulateVerifyReputation<
     args: [
       { a: tuple.a, b: tuple.b, c: tuple.c },
       root,
-      BigInt(args.proofData.attestationId),
-      BigInt(args.externalNullifier),
+      // Reduce into the BN254 field to match the value the proof committed to; passing the
+      // un-reduced value makes the verifier's checkField revert (OPQ-008).
+      toField(BigInt(args.proofData.attestationId)),
+      toField(BigInt(args.externalNullifier)),
       BigInt(args.proofData.nullifier),
     ],
     account,
@@ -131,8 +133,10 @@ export async function submitVerifyReputation<
     args: [
       { a: tuple.a, b: tuple.b, c: tuple.c },
       root,
-      BigInt(args.proofData.attestationId),
-      BigInt(args.externalNullifier),
+      // Reduce into the BN254 field to match the value the proof committed to; passing the
+      // un-reduced value makes the verifier's checkField revert (OPQ-008).
+      toField(BigInt(args.proofData.attestationId)),
+      toField(BigInt(args.externalNullifier)),
       BigInt(args.proofData.nullifier),
     ],
     account,
@@ -145,8 +149,10 @@ export async function submitVerifyReputation<
     args: [
       { a: tuple.a, b: tuple.b, c: tuple.c },
       root,
-      BigInt(args.proofData.attestationId),
-      BigInt(args.externalNullifier),
+      // Reduce into the BN254 field to match the value the proof committed to; passing the
+      // un-reduced value makes the verifier's checkField revert (OPQ-008).
+      toField(BigInt(args.proofData.attestationId)),
+      toField(BigInt(args.externalNullifier)),
       BigInt(args.proofData.nullifier),
     ],
     chain: wallet.chain,
@@ -173,8 +179,10 @@ export async function verifyReputationView(
     args: [
       { a: tuple.a, b: tuple.b, c: tuple.c },
       root,
-      BigInt(args.proofData.attestationId),
-      BigInt(args.externalNullifier),
+      // Reduce into the BN254 field to match the value the proof committed to; passing the
+      // un-reduced value makes the verifier's checkField revert (OPQ-008).
+      toField(BigInt(args.proofData.attestationId)),
+      toField(BigInt(args.externalNullifier)),
       BigInt(args.proofData.nullifier),
     ],
   })) as boolean;

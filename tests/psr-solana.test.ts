@@ -182,8 +182,17 @@ describe("reputation verifier", () => {
     });
     expect(ix.keys).toHaveLength(6);
     const data = new Uint8Array(ix.data);
-    expect(data).toHaveLength(8 + 64 + 128 + 64 + 32 + 8 + 8 + 32);
+    // attestation_id and external_nullifier are 32-byte BE field elements, not u64 (OPQ-008).
+    expect(data).toHaveLength(8 + 64 + 128 + 64 + 32 + 32 + 32 + 32);
     expect([...data.slice(0, 8)]).toEqual([...VERIFY_REPUTATION_DISCRIMINATOR]);
+    const be32 = (n: number) => {
+      const b = new Uint8Array(32);
+      b[31] = n;
+      return b;
+    };
+    const attOff = 8 + 64 + 128 + 64 + 32;
+    expect([...data.slice(attOff, attOff + 32)]).toEqual([...be32(7)]);
+    expect([...data.slice(attOff + 32, attOff + 64)]).toEqual([...be32(42)]);
   });
 
   it("reads the latest root from a mocked root history account", async () => {

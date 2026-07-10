@@ -10,7 +10,7 @@ import {
   Transaction,
   TransactionInstruction,
 } from "@solana/web3.js";
-import { bigIntToBytes32, encodeU64 } from "./codec.js";
+import { bigIntToBytes32 } from "./codec.js";
 
 /**
  * `verify_reputation` instruction discriminator — Anchor's standard
@@ -131,8 +131,11 @@ export function buildVerifyReputationInstruction(params: {
     Buffer.from(params.proofB),
     Buffer.from(params.proofC),
     Buffer.from(params.rootBytes),
-    encodeU64(params.attestationId),
-    encodeU64(BigInt(params.externalNullifier)),
+    // 32-byte big-endian field elements (mirroring the EVM uint256), so a full SHA-256
+    // schema_id / Keccak external_nullifier is representable; the program takes [u8; 32]
+    // now, not u64, which silently capped the domain at 2^64 (OPQ-008).
+    Buffer.from(bigIntToBytes32(BigInt(params.attestationId))),
+    Buffer.from(bigIntToBytes32(BigInt(params.externalNullifier))),
     Buffer.from(params.nullifierBytes),
   ]);
   return new TransactionInstruction({
