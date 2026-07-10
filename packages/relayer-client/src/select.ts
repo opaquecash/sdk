@@ -41,19 +41,36 @@ export async function verifyEvmBidSignature(bid: Bid): Promise<boolean> {
   }
 }
 
+/** The job a bid must be for: the id and chain the user actually created and funded. */
+export interface ExpectedJob {
+  jobId: Hex;
+  chain: number;
+}
+
 /**
- * Filter bids to those that are well-formed, signed by the registered operator, whose
- * registered key matches the advertised key, and whose free stake covers `fee`.
- * `verifySig` defaults to the EVM verifier; pass a Solana ed25519 verifier for `.sol`.
+ * Filter bids to those that are for the user's own job, well-formed, signed by the
+ * registered operator, whose registered key matches the advertised key, and whose free
+ * stake covers `fee`. `verifySig` defaults to the EVM verifier; pass a Solana ed25519
+ * verifier for `.sol`.
+ *
+ * The `expected` binding is load-bearing: the bid-signing hash covers only
+ * `(jobId, x25519Pk)` and delivery is addressed by the winning bid's own `jobId`, so
+ * without it an untrusted gateway could return a valid bid from a registered relayer that
+ * carries a *foreign* jobId/chain, win selection, and receive the real job's payload —
+ * learning it pre-submission and letting that relayer submit the real job (OPQ-012).
  */
 export async function verifyBids(
   bids: Bid[],
   fee: bigint,
   readers: RegistryReaders,
+  expected: ExpectedJob,
   verifySig?: (bid: Bid) => Promise<boolean>,
 ): Promise<VerifiedBid[]> {
   const out: VerifiedBid[] = [];
   for (const bid of bids) {
+    // Bind the bid to the job the user created/funded before trusting anything else about it.
+    if (bid.jobId.toLowerCase() !== expected.jobId.toLowerCase()) continue;
+    if (bid.chain !== expected.chain) continue;
     const sigOk = verifySig ? await verifySig(bid) : await verifyEvmBidSignature(bid);
     if (!sigOk) continue;
     const registered = await readers.registeredKey(bid.operator);

@@ -54,6 +54,7 @@ export {
   selectWinner,
   type RegistryReaders,
   type VerifiedBid,
+  type ExpectedJob,
 } from "./select.js";
 
 export {

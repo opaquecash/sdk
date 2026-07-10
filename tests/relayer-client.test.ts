@@ -19,6 +19,7 @@ import {
   buildEvmCreateJob,
   buildSolanaCreateJob,
   selectWinner,
+  verifyBids,
   verifyEvmBidSignature,
   gaslessSweepSubmission,
   postGaslessSweep,
@@ -127,6 +128,40 @@ describe("bids", () => {
     };
     expect(await verifyEvmBidSignature(bid)).toBe(true);
     expect(await verifyEvmBidSignature({ ...bid, x25519Pk: `0x${"cd".repeat(32)}` })).toBe(false);
+  });
+
+  it("rejects a valid bid carrying a foreign jobId or chain (OPQ-012)", async () => {
+    const account = privateKeyToAccount(`0x${"11".repeat(32)}`);
+    const ourJob = `0x${"01".repeat(32)}` as const;
+    const foreignJob = `0x${"02".repeat(32)}` as const;
+    const x25519Pk = `0x${"ab".repeat(32)}` as const;
+    // A genuine, well-staked, registered relayer signs a bid — but for a DIFFERENT job.
+    const mkBid = async (jobId: `0x${string}`, chain: number): Promise<Bid> => ({
+      t: "bid",
+      v: 1,
+      jobId,
+      chain,
+      operator: account.address,
+      x25519Pk,
+      sig: await account.signMessage({ message: { raw: bidSigningHash(jobId, x25519Pk) } }),
+    });
+    const readers = {
+      freeStakeOf: async () => 10n,
+      registeredKey: async () => x25519Pk,
+    };
+
+    // Foreign jobId → rejected even though signature, registration, and stake all check out.
+    const foreign = await verifyBids([await mkBid(foreignJob, 2)], 1n, readers, { jobId: ourJob, chain: 2 });
+    expect(foreign).toHaveLength(0);
+
+    // Wrong chain for our job → rejected.
+    const wrongChain = await verifyBids([await mkBid(ourJob, 1)], 1n, readers, { jobId: ourJob, chain: 2 });
+    expect(wrongChain).toHaveLength(0);
+
+    // The bid for our own job on the right chain is accepted.
+    const ok = await verifyBids([await mkBid(ourJob, 2)], 1n, readers, { jobId: ourJob, chain: 2 });
+    expect(ok).toHaveLength(1);
+    expect(ok[0]!.bid.jobId).toBe(ourJob);
   });
 
   it("selects a winner weighted by free stake", () => {

@@ -108,9 +108,17 @@ export function prepareJob(payload: JobPayload, opts: PrepareOptions): PreparedJ
   return prepared;
 }
 
-/** Seal the payload to the winner's advertised x25519 key into a delivery envelope. */
+/**
+ * Seal the payload to the winner's advertised x25519 key into a delivery envelope.
+ *
+ * `jobId` is the user's OWN prepared job id, never the winning bid's claimed `jobId`: the
+ * envelope must address the job the user created and funded so a bid carrying a foreign
+ * jobId can never redirect delivery (OPQ-012). `verifyBids` already rejects mismatched
+ * bids, so after selection they are equal; passing it explicitly keeps that invariant local.
+ */
 export function buildPayloadEnvelope(
   winner: Bid,
+  jobId: Hex,
   payload: JobPayload,
   rand: (n: number) => Uint8Array = randomBytes,
 ): PayloadEnvelope {
@@ -119,7 +127,7 @@ export function buildPayloadEnvelope(
   return {
     t: "payload",
     v: 1,
-    jobId: winner.jobId,
+    jobId,
     to: winner.x25519Pk,
     box: bytesToHexBase64(sealed),
   };
@@ -161,7 +169,13 @@ export async function submitGasPrivate(
     minBids: opts.minBids ?? 1,
     timeoutMs: opts.timeoutMs ?? 15_000,
   });
-  const verified = await verifyBids(bids, opts.fee, opts.readers, opts.verifySig);
+  const verified = await verifyBids(
+    bids,
+    opts.fee,
+    opts.readers,
+    { jobId: prepared.jobId, chain: opts.payload.chain },
+    opts.verifySig,
+  );
   const winner = selectWinner(verified, opts.random);
   if (!winner) {
     throw new Error(
@@ -169,7 +183,7 @@ export async function submitGasPrivate(
     );
   }
 
-  const envelope = buildPayloadEnvelope(winner.bid, opts.payload, opts.randomBytes);
+  const envelope = buildPayloadEnvelope(winner.bid, prepared.jobId, opts.payload, opts.randomBytes);
   await postPayload(opts.gateway, envelope);
   return { jobId: prepared.jobId, payloadHash: prepared.payloadHash, winner };
 }
