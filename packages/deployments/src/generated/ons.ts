@@ -8,7 +8,7 @@ export const ONS_DEPLOYMENTS: Record<number, OnsDeployment> = {
     chainId: 11155111,
     parentName: "opqtest.eth",
     parentNode: "0x69e6f3c7f1af8e1fa7cd50ea89ee6f7fd840e7ad1f61c7e8efc4a6a8f3c12630",
-    registry: "0x6e18a2faaa929848a3377C28Cf250795E20Fce02",
+    registry: "0xd934f160b5eF085e45aaaAD6b5C7F5fB8cf29285",
     cluster: "devnet",
   },
 };

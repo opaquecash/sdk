@@ -1170,6 +1170,11 @@ export const opaqueReputationVerifierV2Abi = [
   },
   {
     "inputs": [],
+    "name": "SchemaNotRegistered",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "Unauthorized",
     "type": "error"
   },
@@ -1251,6 +1256,19 @@ export const opaqueReputationVerifierV2Abi = [
       }
     ],
     "name": "ReputationVerified",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "registry",
+        "type": "address"
+      }
+    ],
+    "name": "SchemaRegistryUpdated",
     "type": "event"
   },
   {
@@ -1373,6 +1391,32 @@ export const opaqueReputationVerifierV2Abi = [
       }
     ],
     "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "schemaRegistry",
+    "outputs": [
+      {
+        "internalType": "contract IOpaqueSchemaRegistry",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "registry",
+        "type": "address"
+      }
+    ],
+    "name": "setSchemaRegistry",
+    "outputs": [],
+    "stateMutability": "nonpayable",
     "type": "function"
   },
   {
@@ -1744,6 +1788,11 @@ export const uABReceiverAbi = [
     "type": "error"
   },
   {
+    "inputs": [],
+    "name": "EmitterNotConfigured",
+    "type": "error"
+  },
+  {
     "inputs": [
       {
         "internalType": "string",
@@ -1752,6 +1801,11 @@ export const uABReceiverAbi = [
       }
     ],
     "name": "InvalidVAA",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "SourceChainMismatch",
     "type": "error"
   },
   {
@@ -2055,6 +2109,11 @@ export const relayerRegistryAbi = [
   {
     "inputs": [],
     "name": "UnknownJob",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "UnstakePending",
     "type": "error"
   },
   {
