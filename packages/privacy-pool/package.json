@@ -1,6 +1,6 @@
 {
   "name": "@opaquecash/privacy-pool",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Privacy pool client: deposit commitments, Poseidon Merkle trees, withdrawal witness + Groth16 proof generation, deposit/withdraw tx building, and association-set resolution (chain reconstruction + ENS/IPFS manifest) (spec/privacy-pool.md)",
   "type": "module",
   "main": "./dist/index.js",
@@ -19,7 +19,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@opaquecash/deployments": "0.2.0",
+    "@opaquecash/deployments": "0.2.3",
     "circomlibjs": "^0.1.7",
     "snarkjs": "^0.7.5",
     "viem": "^2.21.0"

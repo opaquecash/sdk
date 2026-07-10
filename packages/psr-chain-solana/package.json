@@ -1,6 +1,6 @@
 {
   "name": "@opaquecash/psr-chain-solana",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Solana (web3.js) PSR V2 integration: schema registry, attestation engine, and reputation-verifier proof submission. The Solana counterpart to @opaquecash/psr-chain.",
   "type": "module",
   "main": "./dist/index.js",
@@ -19,7 +19,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@opaquecash/stealth-chain-solana": "0.2.0",
+    "@opaquecash/stealth-chain-solana": "0.2.4",
     "@noble/hashes": "^1.5.0",
     "@solana/web3.js": "^1.98.4"
   },

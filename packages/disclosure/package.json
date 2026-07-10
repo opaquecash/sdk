@@ -1,6 +1,6 @@
 {
   "name": "@opaquecash/disclosure",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Conditional disclosure client: Shamir viewing-key escrow, disclosure witness + Groth16 proof generation, BIP-340 quorum-signature helpers, and disclose tx building (spec/conditional-disclosure.md)",
   "type": "module",
   "main": "./dist/index.js",
@@ -21,8 +21,8 @@
   "dependencies": {
     "@noble/curves": "^1.6.0",
     "@solana/web3.js": "^1.98.4",
-    "@opaquecash/deployments": "0.2.0",
-    "@opaquecash/privacy-pool": "0.3.0",
+    "@opaquecash/deployments": "0.2.3",
+    "@opaquecash/privacy-pool": "0.3.1",
     "shamir-secret-sharing": "^0.0.4",
     "snarkjs": "^0.7.5",
     "viem": "^2.21.0"

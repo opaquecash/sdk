@@ -19,7 +19,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@opaquecash/opaque": "0.2.1"
+    "@opaquecash/opaque": "0.2.12"
   },
   "peerDependencies": {
     "react": ">=18"
