@@ -1,6 +1,6 @@
 {
   "name": "@opaquecash/psr-chain",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Viem integration for OpaqueReputationVerifier (roots, verify, submit)",
   "type": "module",
   "main": "./dist/index.js",
@@ -20,7 +20,7 @@
   },
   "dependencies": {
     "@opaquecash/deployments": "0.2.0",
-    "@opaquecash/psr-core": "0.2.1",
+    "@opaquecash/psr-core": "0.2.2",
     "viem": "^2.21.0"
   },
   "sideEffects": false,
