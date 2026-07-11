@@ -56,7 +56,7 @@ describe("UAB deployment registry", () => {
   it("knows the Sepolia deployment", () => {
     const d = getUabDeployment(11155111);
     expect(d?.uabSender.toLowerCase()).toBe("0x872787c0bd1a0c71e6d1be5a144eb044e0cb2069");
-    expect(d?.uabReceiver.toLowerCase()).toBe("0x9ef189f7a263f870cf80f9a89d1349a6af7b15cf");
+    expect(d?.uabReceiver.toLowerCase()).toBe("0x29799fbccd9768f3b50473370d824bca8b4cc4b7");
     expect(d?.whChain).toBe(2);
     expect(d?.sourceWhChain).toBe(1);
   });
