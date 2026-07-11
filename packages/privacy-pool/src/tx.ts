@@ -26,6 +26,7 @@ export const opaquePrivacyPoolAbi = [
       { name: "c", type: "uint256[2]" },
       { name: "withdrawnValue", type: "uint256" },
       { name: "stateRoot", type: "uint256" },
+      { name: "aspRoot", type: "uint256" },
       { name: "nullifierHash", type: "uint256" },
       { name: "newCommitment", type: "uint256" },
       {
@@ -113,6 +114,8 @@ export function buildWithdrawTx(
   publics: {
     withdrawnValue: bigint;
     stateRoot: bigint;
+    /** A recent known ASP root the proof attests against (validated on-chain via isKnownAspRoot). */
+    aspRoot: bigint;
     nullifierHash: bigint;
     newCommitment: bigint;
   },
@@ -129,6 +132,7 @@ export function buildWithdrawTx(
         proof.c,
         publics.withdrawnValue,
         publics.stateRoot,
+        publics.aspRoot,
         publics.nullifierHash,
         publics.newCommitment,
         params,

@@ -145,7 +145,7 @@ describe("witness + tx building", () => {
     const w = buildWithdrawTx(
       pool,
       { a: [1n, 2n], b: [[3n, 4n], [5n, 6n]], c: [7n, 8n] },
-      { withdrawnValue: 1n, stateRoot: 2n, nullifierHash: 3n, newCommitment: 4n },
+      { withdrawnValue: 1n, stateRoot: 2n, aspRoot: 9n, nullifierHash: 3n, newCommitment: 4n },
       { recipient: pool, feeRecipient: "0x0000000000000000000000000000000000000000", fee: 0n },
     );
     expect(w.value).toBe(0n);
