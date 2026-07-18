@@ -2,14 +2,17 @@
  * Phase 2.2 — four-quadrant cross-chain scan matrix.
  *
  * One recipient, four REAL DKSAP payments (fresh ephemeral keys via
- * `prepareStealthSend`), one per quadrant:
+ * `prepareStealthSend`), one per quadrant. Outputs are tagged by ORIGIN chain
+ * (`chain`/`chainId` = where the funds live, the chain the payment was
+ * announced on — `getBalancesForOutputs` reads balances by them), and
+ * `source` records how they were discovered:
  *
- *   | announced on | scanned from | path                                   |
- *   |--------------|--------------|----------------------------------------|
- *   | Ethereum     | Ethereum     | native Announcement log                |
- *   | Solana       | Solana       | native Announcement anchor event       |
- *   | Ethereum     | Solana       | UAB → uab-receiver CrossChainAnnouncement |
- *   | Solana       | Ethereum     | UAB → UABReceiver CrossChainAnnouncement  |
+ *   | announced on | scanned from | tagged as        | path                                      |
+ *   |--------------|--------------|------------------|-------------------------------------------|
+ *   | Ethereum     | Ethereum     | ethereum/native  | native Announcement log                   |
+ *   | Solana       | Solana       | solana/native    | native Announcement anchor event          |
+ *   | Ethereum     | Solana       | ethereum/uab     | UAB → uab-receiver CrossChainAnnouncement |
+ *   | Solana       | Ethereum     | solana/uab       | UAB → UABReceiver CrossChainAnnouncement  |
  *
  * Transports are stubbed (live Wormhole delivery is Phase 3.1's
  * wormhole-local-validator job) but everything else is real: canonical event
@@ -229,6 +232,7 @@ describe.skipIf(!wasmPresent)("four-quadrant cross-chain scan matrix (2.2)", () 
     const got = out
       .map((o) => ({
         chain: o.chain,
+        chainId: o.chainId,
         source: o.source,
         stealthAddress: o.stealthAddress.toLowerCase(),
       }))
@@ -238,10 +242,10 @@ describe.skipIf(!wasmPresent)("four-quadrant cross-chain scan matrix (2.2)", () 
 
     expect(got).toEqual(
       [
-        { chain: "ethereum", source: "native", stealthAddress: ethNative.stealthAddress.toLowerCase() },
-        { chain: "ethereum", source: "uab", stealthAddress: solToEth.stealthAddress.toLowerCase() },
-        { chain: "solana", source: "native", stealthAddress: solNative.stealthAddress.toLowerCase() },
-        { chain: "solana", source: "uab", stealthAddress: ethToSol.stealthAddress.toLowerCase() },
+        { chain: "ethereum", chainId: 2, source: "native", stealthAddress: ethNative.stealthAddress.toLowerCase() },
+        { chain: "ethereum", chainId: 2, source: "uab", stealthAddress: ethToSol.stealthAddress.toLowerCase() },
+        { chain: "solana", chainId: 1, source: "native", stealthAddress: solNative.stealthAddress.toLowerCase() },
+        { chain: "solana", chainId: 1, source: "uab", stealthAddress: solToEth.stealthAddress.toLowerCase() },
       ].sort((a, b) => `${a.chain}/${a.source}`.localeCompare(`${b.chain}/${b.source}`)),
     );
 

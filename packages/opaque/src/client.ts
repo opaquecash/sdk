@@ -1892,15 +1892,33 @@ export class OpaqueClient {
       // those keep their origin chainId, which distinguishes them from native ones.
       const native = announcements.filter((a) => a.chainId === adapter.chainId);
       const relayed = announcements.filter((a) => a.chainId !== adapter.chainId);
-      for (const [list, source] of [
-        [native, "native"],
-        [relayed, "uab"],
-      ] as const) {
-        if (list.length === 0) continue;
-        const rows = list.map(announcementToIndexerRow);
-        const owned = await this.filterOwnedAnnouncements(rows);
+      if (native.length > 0) {
+        const owned = await this.filterOwnedAnnouncements(
+          native.map(announcementToIndexerRow),
+        );
         for (const o of owned) {
-          out.push({ ...o, chain, chainId: adapter.chainId, source });
+          out.push({ ...o, chain, chainId: adapter.chainId, source: "native" });
+        }
+      }
+      // Relayed announcements keep their ORIGIN chain tag — `chain`/`chainId` mean
+      // "where the funds live" ({@link getBalancesForOutputs} reads balances by
+      // them), and a payment announced on chain A relayed to chain B holds funds
+      // on A. Same rule as the EVM UABReceiver merge below; grouped per origin
+      // because one receiver can carry mixed origins.
+      const relayedByOrigin = new Map<number, typeof relayed>();
+      for (const a of relayed) {
+        const bucket = relayedByOrigin.get(a.chainId);
+        if (bucket) bucket.push(a);
+        else relayedByOrigin.set(a.chainId, [a]);
+      }
+      for (const [originId, list] of relayedByOrigin) {
+        const owned = await this.filterOwnedAnnouncements(
+          list.map(announcementToIndexerRow),
+        );
+        const originChain: OpaqueScanChain =
+          originId === WORMHOLE_CHAIN_SOLANA ? "solana" : "ethereum";
+        for (const o of owned) {
+          out.push({ ...o, chain: originChain, chainId: originId, source: "uab" });
         }
       }
     }

@@ -4,6 +4,16 @@ All notable changes to the Opaque SDK packages.
 
 ## Unreleased
 
+### Fixed
+- **`scan()` origin tagging for Solana-relayed UAB outputs.** The 2026-07-02
+  origin-tagging change covered only the EVM `UABReceiver` merge; announcements
+  relayed to the Solana `uab-receiver` were still tagged with the found-on
+  chain (`chain: "solana"`, Solana `chainId`), so `getBalancesForOutputs` read
+  an Ethereum-origin payment's balance from a derived Solana account that holds
+  nothing. Relayed announcements are now grouped by their origin `chainId` and
+  tagged like the EVM path; the four-quadrant scan-matrix test pins the
+  documented origin semantics (including `chainId`) on both directions.
+
 ### Added
 - **`@opaquecash/psr-chain-starknet` 0.1.0 (new package).** Starknet proof
   encoding and verifier call builders for PSR: `encodeFullProofWithHints`
