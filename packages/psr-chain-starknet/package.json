@@ -1,0 +1,36 @@
+{
+  "name": "@opaquecash/psr-chain-starknet",
+  "version": "0.1.0",
+  "description": "Starknet proof encoding (Garaga full_proof_with_hints) and verifier call builders for PSR",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@opaquecash/psr-core": "0.2.2",
+    "garaga": "1.1.0"
+  },
+  "sideEffects": false,
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/opaquecash/sdk.git",
+    "directory": "packages/psr-chain-starknet"
+  },
+  "homepage": "https://docs.opaque.cash",
+  "publishConfig": {
+    "access": "public"
+  }
+}

@@ -5,6 +5,15 @@ All notable changes to the Opaque SDK packages.
 ## Unreleased
 
 ### Added
+- **`@opaquecash/psr-chain-starknet` 0.1.0 (new package).** Starknet proof
+  encoding and verifier call builders for PSR: `encodeFullProofWithHints`
+  turns a snarkjs Groth16 proof into the Garaga `full_proof_with_hints`
+  calldata (WASM bindings, `garaga` pinned to `1.1.0` — the version the
+  on-chain verifier was generated with; a golden test asserts felt-for-felt
+  equality with the Python `garaga calldata` CLI output), plus
+  `buildVerifyReputationCall` / `buildVerifyReputationViewCall` /
+  `buildUpdateMerkleRootCall` / `buildIsNullifierUsedCall` with `u256` limb
+  encoding and the Sepolia deployment constants (`STARKNET_SEPOLIA_PSR`).
 - **Solana fee-in-token gasless sweep.** `buildStealthTokenSweepTransaction`
   (`@opaquecash/stealth-chain-solana` 0.2.2) takes `fee` + `feeRecipientOwner` (default: the fee
   payer): the destination receives `amount - fee` and the relayer's ATA receives `fee` in the same
