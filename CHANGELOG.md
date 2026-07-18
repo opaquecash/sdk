@@ -15,6 +15,15 @@ All notable changes to the Opaque SDK packages.
   documented origin semantics (including `chainId`) on both directions.
 
 ### Added
+- **`@opaquecash/stealth-chain-starknet` 0.1.0 (new package).** Starknet
+  `ChainAdapter` (Opaque-assigned chain id `0x534e` "SN"): announcement
+  fetching via `starknet_getEvents` with a Cairo `ByteArray` codec and
+  malformed-event skipping, registry `resolveMetaAddress`/`isRegistered`
+  reads, `buildAnnounceCall`/`buildRegisterKeysCall` builders, and the
+  Sepolia deployment constants. Dependency-free JSON-RPC (no starknet.js).
+  Golden fixtures are the REAL Sepolia event of CSAP canonical vector 1
+  (announced through the live announcer with builder-produced calldata),
+  plus an env-gated live-network test.
 - **`@opaquecash/psr-chain-starknet` 0.1.0 (new package).** Starknet proof
   encoding and verifier call builders for PSR: `encodeFullProofWithHints`
   turns a snarkjs Groth16 proof into the Garaga `full_proof_with_hints`
