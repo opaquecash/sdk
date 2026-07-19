@@ -14,6 +14,22 @@ All notable changes to the Opaque SDK packages.
   tagged like the EVM path; the four-quadrant scan-matrix test pins the
   documented origin semantics (including `chainId`) on both directions.
 
+### Changed
+- **`OpaqueClient` scan is three-chain.** `OpaqueScanChain` gains `"starknet"`;
+  `scan({ chains: ["starknet"] })` (or mixed with the others) routes through a
+  lazily-built `StarknetAdapter` via the new optional `starknet` config, tags
+  outputs with the Starknet chain id, and needs no wallet (reads only). Starknet
+  write paths (send, register, PSR issuance) fail CLOSED with an explicit
+  unsupported-chain error until the Starknet sender lands — no silent
+  wrong-chain fallthrough.
+- **`@opaquecash/deployments`** now bundles Starknet: `StarknetDeployment`
+  type, `STARKNET_DEPLOYMENTS`, and `getStarknetDeployment` /
+  `requireStarknetDeployment` / `getStarknetNetworks`, generated from
+  `starknet/deployments/*.json`.
+- **`useStealthBalance().totals`** is now a `Partial<Record<OpaqueScanChain,
+  bigint>>` (absent chains read as `0n` via `?? 0n`) instead of a fixed
+  `{ ethereum, solana }` shape, so a new scan chain can't break the type.
+
 ### Added
 - **`@opaquecash/stealth-chain-starknet` 0.1.0 (new package).** Starknet
   `ChainAdapter` (Opaque-assigned chain id `0x534e` "SN"): announcement

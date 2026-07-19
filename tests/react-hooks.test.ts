@@ -111,7 +111,9 @@ describe("useStealthBalance", () => {
     );
     await waitFor(() => expect(result.current.balances).toHaveLength(2));
     expect(result.current.totals.ethereum).toBe(10n);
-    expect(result.current.totals.solana).toBe(0n);
+    // Absent chains are omitted from the partial record; read with `?? 0n`.
+    expect(result.current.totals.solana ?? 0n).toBe(0n);
+    expect(result.current.totals.starknet ?? 0n).toBe(0n);
     expect(result.current.error).toBeNull();
   });
 

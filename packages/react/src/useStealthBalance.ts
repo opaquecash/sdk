@@ -1,13 +1,24 @@
 import { useEffect, useRef, useState } from "react";
-import type { OutputBalance, UnifiedOwnedOutput } from "@opaquecash/opaque";
+import type {
+  OpaqueScanChain,
+  OutputBalance,
+  UnifiedOwnedOutput,
+} from "@opaquecash/opaque";
 import { useOpaqueClientOrNull } from "./context.js";
+
+/**
+ * Per-chain native-balance sums. Chains with no owned outputs are absent, so
+ * read with `?? 0n` (e.g. `totals.ethereum ?? 0n`). A partial record rather
+ * than a fixed shape so a new scan chain never breaks the type.
+ */
+export type StealthBalanceTotals = Partial<Record<OpaqueScanChain, bigint>>;
 
 /** State returned by {@link useStealthBalance}. */
 export interface UseStealthBalanceResult {
   /** Native balance per owned output (wei / lamports), in input order. */
   balances: OutputBalance[];
-  /** Sum of `balances` per chain, in base units. */
-  totals: { ethereum: bigint; solana: bigint };
+  /** Sum of `balances` per chain, in base units (absent chains read as `0n`). */
+  totals: StealthBalanceTotals;
   /** True while balances are being fetched. */
   loading: boolean;
   /** Last fetch error, cleared by the next successful fetch. */
@@ -59,13 +70,10 @@ export function useStealthBalance(
     // eslint-disable-next-line react-hooks/exhaustive-deps -- outputsKey covers outputs
   }, [client, outputsKey]);
 
-  const totals = balances.reduce(
-    (acc, b) => {
-      acc[b.chain] += b.nativeRaw;
-      return acc;
-    },
-    { ethereum: 0n, solana: 0n },
-  );
+  const totals = balances.reduce<StealthBalanceTotals>((acc, b) => {
+    acc[b.chain] = (acc[b.chain] ?? 0n) + b.nativeRaw;
+    return acc;
+  }, {});
 
   return { balances, totals, loading, error };
 }

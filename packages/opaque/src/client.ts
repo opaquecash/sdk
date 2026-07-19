@@ -63,6 +63,10 @@ import {
   type StealthSolanaSigner,
   type OnsClaimStatus,
 } from "@opaquecash/stealth-chain-solana";
+import {
+  StarknetAdapter,
+  type StarknetAdapterOptions,
+} from "@opaquecash/stealth-chain-starknet";
 import { getEvmDeployment, getOnsDeployment } from "@opaquecash/deployments";
 
 /** Minimal write/read surface of the canonical OpaqueNameRegistry (spec/ONS.md §2). */
@@ -307,6 +311,13 @@ export interface OpaqueClientConfig {
    */
   solana?: SolanaAdapterConfig;
   /**
+   * Starknet access for the unified {@link OpaqueClient.scan} inbox. Optional: only needed when
+   * `scan({ chains })` includes `"starknet"`. Scanning and registry reads are wallet-free; the
+   * viewing/spending keys are chain-neutral. Starknet write paths (send, register, PSR issuance)
+   * are not yet wired into the facade — see the P1b roadmap in spec/starknet-integration.md.
+   */
+  starknet?: StarknetAdapterOptions;
+  /**
    * EIP-1193 provider (e.g. `window.ethereum` or a wallet bridge) used to SIGN Ethereum PSR
    * writes (`createSchema`, `issueAttestation`, …). Reads never need it. Transactions are signed
    * by {@link ethereumAddress}; omit it for read-only / Solana-only usage.
@@ -447,7 +458,7 @@ export interface IssueAttestationResult extends PsrTxResult {
 }
 
 /** Chains the unified {@link OpaqueClient.scan} can read. */
-export type OpaqueScanChain = "ethereum" | "solana";
+export type OpaqueScanChain = "ethereum" | "solana" | "starknet";
 
 /** One owned stealth output from the unified inbox, tagged with its source chain. */
 export interface UnifiedOwnedOutput extends OwnedStealthOutput {
@@ -724,6 +735,7 @@ export class OpaqueClient {
   private readonly wasm: StealthWasmModule;
   private evmAdapter?: ChainAdapter;
   private solanaAdapter?: SolanaAdapter;
+  private starknetAdapter?: StarknetAdapter;
   private evmWalletClientCache?: WalletClient;
   private solanaWalletCache?: {
     publicKey: PublicKey;
@@ -2018,6 +2030,9 @@ export class OpaqueClient {
     if (chain === "solana") {
       return this.getSolanaAdapter();
     }
+    if (chain === "starknet") {
+      return this.getStarknetAdapter();
+    }
     throw new Error(`Opaque: unsupported scan chain "${chain as string}"`);
   }
 
@@ -2025,6 +2040,12 @@ export class OpaqueClient {
   private getSolanaAdapter(): SolanaAdapter {
     this.solanaAdapter ??= new SolanaAdapter(this.config.solana ?? {});
     return this.solanaAdapter;
+  }
+
+  /** Lazily build and cache the concrete {@link StarknetAdapter}. */
+  private getStarknetAdapter(): StarknetAdapter {
+    this.starknetAdapter ??= new StarknetAdapter(this.config.starknet ?? {});
+    return this.starknetAdapter;
   }
 
   /**

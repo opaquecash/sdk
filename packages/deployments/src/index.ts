@@ -18,14 +18,21 @@ export type {
   EvmDeployment,
   OnsDeployment,
   SolanaProgramIds,
+  StarknetDeployment,
 } from "./types.js";
 
 import { EVM_DEPLOYMENTS } from "./generated/ethereum.js";
 import { ONS_DEPLOYMENTS } from "./generated/ons.js";
 import { SOLANA_PROGRAM_IDS } from "./generated/solana.js";
-import type { EvmDeployment, OnsDeployment, SolanaProgramIds } from "./types.js";
+import { STARKNET_DEPLOYMENTS } from "./generated/starknet.js";
+import type {
+  EvmDeployment,
+  OnsDeployment,
+  SolanaProgramIds,
+  StarknetDeployment,
+} from "./types.js";
 
-export { EVM_DEPLOYMENTS, ONS_DEPLOYMENTS, SOLANA_PROGRAM_IDS };
+export { EVM_DEPLOYMENTS, ONS_DEPLOYMENTS, SOLANA_PROGRAM_IDS, STARKNET_DEPLOYMENTS };
 export * from "./generated/abis.js";
 
 /** Chain ids with a bundled EVM deployment. */
@@ -65,6 +72,27 @@ export function requireSolanaProgramIds(cluster: string): SolanaProgramIds {
   if (!d) {
     throw new Error(
       `@opaquecash/deployments: no Solana program ids for cluster "${cluster}". Bundled: ${getSolanaClusters().join(", ")}`,
+    );
+  }
+  return d;
+}
+
+/** Networks with a bundled Starknet deployment. */
+export function getStarknetNetworks(): string[] {
+  return Object.keys(STARKNET_DEPLOYMENTS);
+}
+
+/** Resolve the bundled Starknet deployment for a network, or `undefined`. */
+export function getStarknetDeployment(network: string): StarknetDeployment | undefined {
+  return STARKNET_DEPLOYMENTS[network];
+}
+
+/** Resolve the bundled Starknet deployment for a network, or throw. */
+export function requireStarknetDeployment(network: string): StarknetDeployment {
+  const d = STARKNET_DEPLOYMENTS[network];
+  if (!d) {
+    throw new Error(
+      `@opaquecash/deployments: no Starknet deployment for network "${network}". Bundled: ${getStarknetNetworks().join(", ")}`,
     );
   }
   return d;
