@@ -1,5 +1,5 @@
 import { encodeByteArray, toFeltHex } from "./bytearray.js";
-import { STARKNET_SEPOLIA } from "./deployment.js";
+import { STARKNET_SEPOLIA, STRK_TOKEN_ADDRESS } from "./deployment.js";
 
 /** A Starknet call in the shape `starknet.js` / `sncast` accept. */
 export interface StarknetCall {
@@ -40,6 +40,30 @@ export function buildAnnounceCall(
     ...encodeByteArray(params.metadata).map(toFeltHex),
   ];
   return { contractAddress: announcer, entrypoint: "announce", calldata };
+}
+
+/**
+ * Build an ERC-20 `transfer(recipient, amount)` to a stealth address. The
+ * recipient account need not be deployed — a SNIP-2 balance credit does not
+ * require the account contract to exist, so the funds wait at the
+ * counterfactual address until the recipient deploys it and sweeps.
+ */
+export function buildStealthTransferCall(params: {
+  stealthAddress: string;
+  amount: bigint;
+  token?: string;
+}): StarknetCall {
+  if (params.amount <= 0n) {
+    throw new Error("Transfer amount must be positive");
+  }
+  return {
+    contractAddress: params.token ?? STRK_TOKEN_ADDRESS,
+    entrypoint: "transfer",
+    calldata: [
+      toFeltHex(hexToBigInt(params.stealthAddress)),
+      ...u256Calldata(params.amount),
+    ],
+  };
 }
 
 /** Build the self-service `register_keys` invoke on the CSAP registry. */

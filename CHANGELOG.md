@@ -31,6 +31,15 @@ All notable changes to the Opaque SDK packages.
   `{ ethereum, solana }` shape, so a new scan chain can't break the type.
 
 ### Added
+- **`OpaqueClient.buildStarknetStealthSend` — Starknet stealth sends.** Resolves
+  a recipient, derives the counterfactual stealth account, and returns the two
+  unsigned calls to broadcast in one multicall from a Starknet wallet: an ERC-20
+  `transfer` (STRK by default) to the stealth address, then the `announce`.
+  Signing/broadcasting stays with the app's wallet (like the Solana instruction
+  path), so no Starknet signer is needed in the client config. Also exports
+  `buildStealthTransferCall` and the `STRK_TOKEN_ADDRESS` / `ETH_TOKEN_ADDRESS`
+  constants. Validated end-to-end on Sepolia: the built multicall funded a
+  counterfactual stealth account and the recipient scanned and owned the payment.
 - **`@opaquecash/stealth-chain-starknet` — counterfactual stealth address
   derivation.** `computeStarknetStealthAccount(pStealthUncompressed,
   ephemeralPubKey)` returns the CSAP Starknet stealth address (the

@@ -66,6 +66,10 @@ import {
 import {
   StarknetAdapter,
   type StarknetAdapterOptions,
+  type StarknetCall,
+  buildAnnounceCall,
+  buildStealthTransferCall,
+  computeStarknetStealthAccount,
 } from "@opaquecash/stealth-chain-starknet";
 import { getEvmDeployment, getOnsDeployment } from "@opaquecash/deployments";
 
@@ -1587,6 +1591,64 @@ export class OpaqueClient {
       };
     }
     throw new Error(`Opaque: unsupported send chain "${params.chain as string}"`);
+  }
+
+  /**
+   * Build (but do not broadcast) a Starknet stealth payment. Returns the
+   * counterfactual stealth account and the two unsigned calls to execute in one
+   * multicall from the sender's Starknet wallet: an ERC-20 `transfer` of
+   * `amount` (defaults to STRK) to the stealth address, then the `announce`.
+   *
+   * The stealth address need not be deployed to receive the transfer; the
+   * recipient later deploys the account and sweeps. Signing/broadcasting is the
+   * app's Starknet wallet's job (mirrors how the Solana path returns
+   * instructions), so no Starknet signer is needed in the client config.
+   */
+  async buildStarknetStealthSend(params: {
+    recipient: string;
+    amount: bigint;
+    /** ERC-20 token to send; defaults to STRK. */
+    token?: string;
+  }): Promise<{
+    stealthAddress: string;
+    salt: bigint;
+    classHash: string;
+    constructorCalldata: bigint[];
+    ephemeralPublicKey: Hex;
+    metaAddressHex: Hex;
+    calls: StarknetCall[];
+  }> {
+    if (params.amount <= 0n) {
+      throw new Error("Opaque: Starknet send amount must be positive.");
+    }
+    const metaAddressHex = await this.resolveSendRecipientMeta("starknet", params.recipient);
+    const send = this.prepareStealthSend(metaAddressHex);
+    const account = computeStarknetStealthAccount(
+      send.stealthPubKey,
+      send.ephemeralPublicKey,
+    );
+    const calls: StarknetCall[] = [
+      buildStealthTransferCall({
+        stealthAddress: account.address,
+        amount: params.amount,
+        token: params.token,
+      }),
+      buildAnnounceCall({
+        stealthAddress: send.stealthAddress,
+        ephemeralPubKey: send.ephemeralPublicKey,
+        metadata: send.metadata,
+        schemeId: send.schemeId,
+      }),
+    ];
+    return {
+      stealthAddress: account.address,
+      salt: account.salt,
+      classHash: account.classHash,
+      constructorCalldata: account.constructorCalldata,
+      ephemeralPublicKey: bytesToHex0x(send.ephemeralPublicKey),
+      metaAddressHex,
+      calls,
+    };
   }
 
   /**

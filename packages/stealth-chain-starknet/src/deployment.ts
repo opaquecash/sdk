@@ -51,3 +51,13 @@ export function getStarknetDeployment(network: "sepolia"): StarknetDeployment {
   }
   return STARKNET_SEPOLIA;
 }
+
+/**
+ * Canonical fee-token addresses (identical across Starknet networks). STRK is
+ * the default gas + value token; ETH is the legacy fee token. Both are SNIP-2
+ * (ERC-20) with a `transfer(recipient, amount: u256)` entry point.
+ */
+export const STRK_TOKEN_ADDRESS =
+  "0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d";
+export const ETH_TOKEN_ADDRESS =
+  "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7";

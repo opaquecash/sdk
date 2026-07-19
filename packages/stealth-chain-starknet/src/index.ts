@@ -14,12 +14,15 @@ export {
 export {
   buildAnnounceCall,
   buildRegisterKeysCall,
+  buildStealthTransferCall,
   type StarknetCall,
 } from "./calls.js";
 export {
+  ETH_TOKEN_ADDRESS,
   getStarknetDeployment,
   OPAQUE_CHAIN_STARKNET,
   STARKNET_SEPOLIA,
+  STRK_TOKEN_ADDRESS,
   type StarknetDeployment,
 } from "./deployment.js";
 export {
