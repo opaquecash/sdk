@@ -15,6 +15,11 @@ All notable changes to the Opaque SDK packages.
   documented origin semantics (including `chainId`) on both directions.
 
 ### Changed
+- **Starknet `reputationVerifier` redeployed** with a `verify_and_consume`
+  entrypoint (returns the four public signals so a consumer gate can enforce its
+  own schema/scope policy). The bundled Starknet deployment now points at the new
+  wrapper `0x079ada22…3af6`, and `StarknetDeployment` gains an optional `psrGate`
+  (the reference credential-gated-entry contract).
 - **`OpaqueClient` scan is three-chain.** `OpaqueScanChain` gains `"starknet"`;
   `scan({ chains: ["starknet"] })` (or mixed with the others) routes through a
   lazily-built `StarknetAdapter` via the new optional `starknet` config, tags

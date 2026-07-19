@@ -37,7 +37,7 @@ export const STARKNET_SEPOLIA: StarknetDeployment = {
   stealthRegistry:
     "0x047ff90c491384ecf8dba8b32b1eea7947f850ea92ddc196edcb0f508acff874",
   reputationVerifier:
-    "0x017a56e5a3963214781320bb1e007b6b72b97041ab8087261253e80233083eb6",
+    "0x079ada2245bd7f7575c4c67c9ea34edc9c420c57de711762b8ffbb8483823af6",
   groth16Verifier:
     "0x01f339dfc3a1509bc3ccd1c7ea1a19c07bc0f89ad7378b505b3edc5f5b13b02e",
   stealthAccountClassHash:

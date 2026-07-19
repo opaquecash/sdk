@@ -26,8 +26,8 @@ export const STARKNET_SEPOLIA_PSR: StarknetPsrDeployment = {
   },
   reputationVerifier: {
     classHash:
-      "0x05cf3d48bdceb355244e8cc284834f62c47fe8049d839df78271a08d9ac1f4c5",
+      "0x04361bf98499842b39bd103f4ddc890a0adf56e060a75d98fca8143fc45fb576",
     address:
-      "0x017a56e5a3963214781320bb1e007b6b72b97041ab8087261253e80233083eb6",
+      "0x079ada2245bd7f7575c4c67c9ea34edc9c420c57de711762b8ffbb8483823af6",
   },
 };

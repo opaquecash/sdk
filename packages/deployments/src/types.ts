@@ -116,6 +116,8 @@ export interface StarknetDeployment {
   reputationVerifier: string;
   /** Garaga-generated Groth16VerifierBN254 (V2 vkey). */
   groth16Verifier: string;
+  /** PsrGate reference contract (credential-gated entry; Tier-1 PSR consumer). */
+  psrGate?: string;
   /** Consensus-critical stealth account class (CSAP custody). */
   stealthAccountClassHash: string;
   /** Announcer deployment block (scan lower bound). */

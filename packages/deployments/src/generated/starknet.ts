@@ -10,8 +10,9 @@ export const STARKNET_DEPLOYMENTS: Record<string, StarknetDeployment> = {
     "nodeUrl": "https://api.zan.top/public/starknet-sepolia/rpc/v0_10",
     "stealthAnnouncer": "0x003b8258e84e6feec93239b442e6a91f532fda35fed67de4093b1d97150d2aa2",
     "stealthRegistry": "0x047ff90c491384ecf8dba8b32b1eea7947f850ea92ddc196edcb0f508acff874",
-    "reputationVerifier": "0x017a56e5a3963214781320bb1e007b6b72b97041ab8087261253e80233083eb6",
+    "reputationVerifier": "0x079ada2245bd7f7575c4c67c9ea34edc9c420c57de711762b8ffbb8483823af6",
     "groth16Verifier": "0x01f339dfc3a1509bc3ccd1c7ea1a19c07bc0f89ad7378b505b3edc5f5b13b02e",
+    "psrGate": "0x07103219e851b7bc16b07748e4427d38c2b884b06d524b52dbae9a04386b8331",
     "stealthAccountClassHash": "0x04794bab07198e0585d2d7951dbc5860fba47fea2a15d227ca3237b7b9e484ed",
     "announcerFromBlock": 12158000
   }
