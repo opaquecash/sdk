@@ -31,6 +31,13 @@ All notable changes to the Opaque SDK packages.
   `{ ethereum, solana }` shape, so a new scan chain can't break the type.
 
 ### Added
+- **`@opaquecash/stealth-chain-starknet` — counterfactual stealth address
+  derivation.** `computeStarknetStealthAccount(pStealthUncompressed,
+  ephemeralPubKey)` returns the CSAP Starknet stealth address (the
+  deploy-account address of the pinned `StealthAccount` class), its salt
+  (`sn_keccak(R)`), and the `[x.low, x.high, y.low, y.high]` constructor
+  calldata. Pedersen from `@scure/starknet`; the formula and calldata layout
+  are cross-validated against `starknet.js` and the on-chain account Serde.
 - **`@opaquecash/stealth-chain-starknet` 0.1.0 (new package).** Starknet
   `ChainAdapter` (Opaque-assigned chain id `0x534e` "SN"): announcement
   fetching via `starknet_getEvents` with a Cairo `ByteArray` codec and

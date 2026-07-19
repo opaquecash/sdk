@@ -6,6 +6,12 @@ export {
   toFeltHex,
 } from "./bytearray.js";
 export {
+  computeStarknetStealthAccount,
+  ethPublicKeyCalldata,
+  stealthAccountSalt,
+  type StarknetStealthAccount,
+} from "./address.js";
+export {
   buildAnnounceCall,
   buildRegisterKeysCall,
   type StarknetCall,

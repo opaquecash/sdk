@@ -20,7 +20,8 @@
   },
   "dependencies": {
     "@noble/hashes": "^1.5.0",
-    "@opaquecash/adapter": "0.2.0"
+    "@opaquecash/adapter": "0.2.0",
+    "@scure/starknet": "^2.2.0"
   },
   "sideEffects": false,
   "license": "Apache-2.0",
