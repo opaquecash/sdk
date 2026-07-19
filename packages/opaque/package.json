@@ -1,6 +1,6 @@
 {
   "name": "@opaquecash/opaque",
-  "version": "0.2.12",
+  "version": "0.3.0",
   "description": "Unified Opaque SDK client: config, indexer announcements, announce payloads, balances, traits",
   "type": "module",
   "main": "./dist/index.js",
@@ -24,7 +24,7 @@
     "@noble/curves": "^1.6.0",
     "@noble/hashes": "^1.5.0",
     "@opaquecash/adapter": "0.2.0",
-    "@opaquecash/deployments": "0.2.3",
+    "@opaquecash/deployments": "0.3.0",
     "@opaquecash/psr-chain": "0.2.3",
     "@opaquecash/psr-chain-solana": "0.2.3",
     "@opaquecash/psr-core": "0.2.2",
