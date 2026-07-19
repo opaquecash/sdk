@@ -31,6 +31,14 @@ All notable changes to the Opaque SDK packages.
   `{ ethereum, solana }` shape, so a new scan chain can't break the type.
 
 ### Added
+- **`OpaqueClient.buildStarknetSweep` — Starknet recipient sweep.** Reconstructs
+  the one-time secp256k1 key that owns a stealth account and returns the signer
+  key, the `deploy_account` parameters (class hash, salt, constructor calldata),
+  and the transfer-out call. Broadcasting stays with the app's Starknet wallet
+  (`deploy_account` needs Eth-signing), and the account funds its own deploy fee
+  from its balance. `getBalancesForOutputs` now covers Starknet (STRK via
+  `balance_of`, view-only, works for undeployed accounts). Validated end-to-end
+  on Sepolia: a funded stealth account was deployed and swept to a destination.
 - **`OpaqueClient.buildStarknetStealthSend` — Starknet stealth sends.** Resolves
   a recipient, derives the counterfactual stealth account, and returns the two
   unsigned calls to broadcast in one multicall from a Starknet wallet: an ERC-20

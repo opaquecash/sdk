@@ -90,6 +90,16 @@ export class StarknetAdapter implements ChainAdapter {
   async isRegistered(identity: string): Promise<boolean> {
     return (await this.resolveMetaAddress(identity)) != null;
   }
+
+  /**
+   * Read a SNIP-2 (ERC-20) `balance_of(account)` as `{low, high}` u256 limbs.
+   * Works for undeployed accounts (a token balance is state in the token
+   * contract, not the account).
+   */
+  async balanceOf(token: string, account: string): Promise<[bigint, bigint]> {
+    const result = await this.rpc.call(token, "balance_of", [account]);
+    return [BigInt(result[0] ?? 0), BigInt(result[1] ?? 0)];
+  }
 }
 
 /**

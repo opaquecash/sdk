@@ -19,6 +19,7 @@ import {
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { sepolia } from "viem/chains";
+import { secp256k1 } from "@noble/curves/secp256k1";
 import {
   Connection,
   Keypair,
@@ -67,6 +68,7 @@ import {
   StarknetAdapter,
   type StarknetAdapterOptions,
   type StarknetCall,
+  STRK_TOKEN_ADDRESS,
   buildAnnounceCall,
   buildStealthTransferCall,
   computeStarknetStealthAccount,
@@ -2347,6 +2349,68 @@ export class OpaqueClient {
     );
   }
 
+  /**
+   * Build the recipient-side sweep of a Starknet stealth output.
+   *
+   * Reconstructs the one-time secp256k1 key `p_stealth` that owns the stealth
+   * account, then returns everything needed to (1) deploy that account and
+   * (2) move funds out — but does NOT broadcast, since `deploy_account` needs
+   * secp256k1 (Eth) signing that lives in the app's Starknet wallet library.
+   *
+   * The app flow (e.g. with `starknet.js`):
+   * ```ts
+   * const s = client.buildStarknetSweep({ output, destination, amount });
+   * const signer  = new EthSigner(toHexString(s.signerPrivateKey));
+   * const account = new Account(provider, s.address, signer);
+   * await account.deployAccount({
+   *   classHash: s.classHash, constructorCalldata: s.constructorCalldata,
+   *   addressSalt: s.salt, contractAddress: s.address,
+   * });                         // paid from the stealth account's own balance
+   * await account.execute(s.transferCall);
+   * ```
+   *
+   * Because the account funds its own `deploy_account` fee, the balance MUST
+   * exceed that fee; a dust payment cannot be swept without a paymaster/relayer
+   * (spec/starknet-integration.md §5, AA custody friction).
+   */
+  buildStarknetSweep(params: {
+    output: Pick<OwnedStealthOutput, "ephemeralPublicKey">;
+    destination: string;
+    /** Amount to transfer out (compute as balance − a fee reserve). */
+    amount: bigint;
+    /** ERC-20 token to sweep; defaults to STRK. */
+    token?: string;
+  }): {
+    signerPrivateKey: Uint8Array;
+    address: string;
+    salt: bigint;
+    classHash: string;
+    constructorCalldata: bigint[];
+    transferCall: StarknetCall;
+  } {
+    const signerPrivateKey = this.getStealthSignerPrivateKey(params.output);
+    // P_stealth = p_stealth·G (uncompressed): the account's constructor arg and
+    // the input to the same address derivation the sender used.
+    const pStealthUncompressed = secp256k1.getPublicKey(signerPrivateKey, false);
+    const account = computeStarknetStealthAccount(
+      pStealthUncompressed,
+      hexToBytes(params.output.ephemeralPublicKey),
+    );
+    const transferCall = buildStealthTransferCall({
+      stealthAddress: params.destination,
+      amount: params.amount,
+      token: params.token,
+    });
+    return {
+      signerPrivateKey,
+      address: account.address,
+      salt: account.salt,
+      classHash: account.classHash,
+      constructorCalldata: account.constructorCalldata,
+      transferCall,
+    };
+  }
+
   /** The client's ed25519 Solana spend PUBLIC key, or throw if this key set predates it. */
   private requireSolanaSpendPubKey(): Uint8Array {
     if (!this.solanaSpendPubKey) {
@@ -2356,6 +2420,23 @@ export class OpaqueClient {
       );
     }
     return this.solanaSpendPubKey;
+  }
+
+  /**
+   * View-only: the counterfactual Starknet stealth account address for an owned
+   * output. Derives `P_stealth` from the viewing key + announcement (no spend
+   * key), so a watch-only scanner can locate and read the account.
+   */
+  private starknetStealthAddressForOutput(
+    ephemeralPublicKeyHex: Hex,
+  ): string {
+    const ephemeral = hexToBytes(ephemeralPublicKeyHex);
+    const { stealthPubKeyUncompressed } = recipientStealthPoint(
+      this.viewingKey,
+      this.spendPubKey,
+      ephemeral,
+    );
+    return computeStarknetStealthAccount(stealthPubKeyUncompressed, ephemeral).address;
   }
 
   /** View-only: the 32-byte ed25519 Solana stealth address point for an owned output. */
@@ -2492,6 +2573,20 @@ export class OpaqueClient {
           stealthAddress: o.stealthAddress,
           address,
           nativeRaw: BigInt(lamports),
+        });
+      } else if (o.chain === "starknet") {
+        // "Native" value on Starknet is STRK (an ERC-20 read via balanceOf).
+        // The account holds the balance whether or not it is deployed yet.
+        const address = this.starknetStealthAddressForOutput(o.ephemeralPublicKey);
+        const [low, high] = await this.getStarknetAdapter().balanceOf(
+          STRK_TOKEN_ADDRESS,
+          address,
+        );
+        result.push({
+          chain: "starknet",
+          stealthAddress: o.stealthAddress,
+          address,
+          nativeRaw: low + (high << 128n),
         });
       }
     }
