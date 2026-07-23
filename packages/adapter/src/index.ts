@@ -48,6 +48,14 @@ export interface Announcement {
   logIndex?: number;
 }
 
+/** Per-program Solana signature cursors (histories are per address; see `untilSignature`). */
+export interface SolanaSignatureCursor {
+  /** Cursor for the native stealth-announcer program walk. */
+  native?: string;
+  /** Cursor for the cross-chain (UAB) receiver program walk. */
+  crossChain?: string;
+}
+
 /** Options for {@link ChainAdapter.fetchAnnouncements}. */
 export interface FetchAnnouncementsOptions {
   /** Inclusive lower bound cursor (EVM block number or Solana slot). */
@@ -56,6 +64,22 @@ export interface FetchAnnouncementsOptions {
   toCursor?: bigint;
   /** Soft cap on the number of source records to scan (adapter-interpreted). */
   limit?: number;
+  /**
+   * Solana only (signature-cursor chains): stop walking history at this transaction
+   * signature (RPC `until`, exclusive). Persist the newest signature after each pass and
+   * pass it here so periodic scans fetch only what's new instead of replaying the full
+   * signature window. Signature histories are per program address — pass the object form
+   * to give the native announcer and the cross-chain (UAB) receiver their own cursors
+   * (a string applies to both; a cursor absent from a program's history degrades to a
+   * full-window walk, never skipped data). Other adapters ignore it.
+   */
+  untilSignature?: string | SolanaSignatureCursor;
+  /**
+   * Solana only: walk backwards starting from this signature (RPC `before`, exclusive) —
+   * pagination into history. String or per-program object, as {@link untilSignature}.
+   * Other adapters ignore it.
+   */
+  beforeSignature?: string | SolanaSignatureCursor;
   /**
    * Also include cross-chain (UAB) announcements relayed TO this chain, normalised to the
    * same {@link Announcement} shape with their *origin* `chainId`. Adapter-interpreted:

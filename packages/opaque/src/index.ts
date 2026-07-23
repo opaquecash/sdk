@@ -41,6 +41,7 @@ export type {
   ChainAdapter,
   Announcement,
   FetchAnnouncementsOptions,
+  SolanaSignatureCursor,
   AnnouncementHandlers,
 } from "@opaquecash/adapter";
 export {

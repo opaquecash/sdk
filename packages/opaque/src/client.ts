@@ -89,7 +89,7 @@ const onsNameRegistryAbi = [
     outputs: [{ name: "node", type: "bytes32" }],
   },
 ] as const;
-import type { Announcement, ChainAdapter } from "@opaquecash/adapter";
+import type { Announcement, ChainAdapter, SolanaSignatureCursor } from "@opaquecash/adapter";
 import { WORMHOLE_CHAIN_SOLANA } from "@opaquecash/adapter";
 import {
   checkAnnouncement,
@@ -1964,6 +1964,15 @@ export class OpaqueClient {
     /** Max Solana signatures to scan (adapter default when omitted). */
     solanaLimit?: number;
     /**
+     * Solana resume cursor (RPC `until`, exclusive): stop the signature walk at this point.
+     * Persist the newest signature after each pass and feed it back here so periodic scans
+     * fetch only new history. String applies to both program walks; the object form gives
+     * the native announcer and the UAB receiver separate cursors (histories are per address).
+     */
+    solanaUntil?: string | SolanaSignatureCursor;
+    /** Solana pagination cursor (RPC `before`, exclusive): walk backwards from here. */
+    solanaBefore?: string | SolanaSignatureCursor;
+    /**
      * Also merge cross-chain (UAB) announcements, tagged `source: "uab"`: on Ethereum, events
      * re-emitted by the EVM UABReceiver; on Solana, `CrossChainAnnouncement` events from the
      * `uab-receiver` program (merged by the adapter). Defaults to `true` wherever a UAB
@@ -1979,6 +1988,8 @@ export class OpaqueClient {
         fromCursor: opts.fromBlock,
         toCursor: opts.toBlock,
         limit: opts.solanaLimit,
+        untilSignature: opts.solanaUntil,
+        beforeSignature: opts.solanaBefore,
         includeCrossChain: opts.includeCrossChain,
       });
       // Adapters may merge cross-chain (UAB) announcements relayed to their chain;

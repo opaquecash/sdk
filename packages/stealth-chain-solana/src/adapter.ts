@@ -17,6 +17,7 @@ import {
   type AnnouncementHandlers,
   type FetchAnnouncementsOptions,
   type Hex,
+  type SolanaSignatureCursor,
   WORMHOLE_CHAIN_SOLANA,
 } from "@opaquecash/adapter";
 import {
@@ -58,6 +59,14 @@ export interface SolanaAdapterConfig {
   commitment?: Finality;
 }
 
+/** Signature histories are per program address: a plain string applies to both walks. */
+function splitSignatureCursor(
+  cursor: string | SolanaSignatureCursor | undefined,
+): SolanaSignatureCursor {
+  if (cursor === undefined) return {};
+  return typeof cursor === "string" ? { native: cursor, crossChain: cursor } : cursor;
+}
+
 export class SolanaAdapter implements ChainAdapter {
   readonly chainId = WORMHOLE_CHAIN_SOLANA;
   readonly name = "solana";
@@ -78,9 +87,13 @@ export class SolanaAdapter implements ChainAdapter {
   async fetchAnnouncements(
     opts: FetchAnnouncementsOptions = {},
   ): Promise<Announcement[]> {
+    const until = splitSignatureCursor(opts.untilSignature);
+    const before = splitSignatureCursor(opts.beforeSignature);
     const native = await fetchAnnouncementsRange(this.connection, {
       announcerProgramId: this.deployment.stealthAnnouncer,
       limit: opts.limit,
+      before: before.native,
+      until: until.native,
       commitment: this.commitment,
     });
     // Merge Ethereum-originated announcements mirrored by the uab-receiver program,
@@ -90,6 +103,8 @@ export class SolanaAdapter implements ChainAdapter {
     const cross = await fetchCrossChainAnnouncementsRange(this.connection, {
       uabReceiverProgramId: this.deployment.uabReceiver,
       limit: opts.limit,
+      before: before.crossChain,
+      until: until.crossChain,
       commitment: this.commitment,
     });
     return [...native, ...cross];
