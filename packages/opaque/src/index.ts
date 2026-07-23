@@ -165,6 +165,15 @@ export {
   parseStealthMetaAddress,
 } from "./crypto/dksap.js";
 
+export {
+  normalizeOrigin,
+  deriveDappRoot,
+  deriveDappEvmKey,
+  deriveDappSolanaKeypair,
+  type DappMode,
+  type DappKeyOptions,
+} from "./dapp-wallet.js";
+
 export { EIP5564_SCHEME_SECP256K1 } from "@opaquecash/stealth-core";
 export {
   encodeUabPayload,

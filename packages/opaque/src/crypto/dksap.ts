@@ -30,6 +30,8 @@ export function deriveKeysFromSignature(signatureHex: Hex): {
   spendingKey: Uint8Array;
   /** 32-byte seed for the ed25519 Solana spend key `s_ed` (CSAP §2.3). */
   solanaSpendingKey: Uint8Array;
+  /** 32-byte root for per-dApp identities (CSAP §2.10); see `dapp-wallet.ts`. */
+  dappRoot: Uint8Array;
 } {
   const sigBytes =
     typeof signatureHex === "string"
@@ -39,14 +41,17 @@ export function deriveKeysFromSignature(signatureHex: Hex): {
       : signatureHex;
   const sig =
     typeof sigBytes === "string" ? hexToBytes(sigBytes) : sigBytes;
-  // Expand to 96 bytes: the first 64 are unchanged from the original 64-byte
-  // expansion (HKDF-Expand is a prefix stream), so existing viewing/spending
-  // keys are byte-identical; the third block adds the Solana ed25519 spend seed.
-  const okm = hkdf(sha256, sig, undefined, DOMAIN, 96);
+  // Expand to 128 bytes: HKDF-Expand is a prefix stream, so blocks [0:96] are
+  // byte-identical to the earlier 96-byte expansion — existing viewing/spending/
+  // Solana keys and meta-addresses never move. The fourth block is the dApp-identity
+  // root, a one-way sibling of the spending key (guarded by tests/dksap-vectors.test.ts;
+  // only L may ever change here — salt/info changes are NOT prefix-stable).
+  const okm = hkdf(sha256, sig, undefined, DOMAIN, 128);
   return {
     viewingKey: okm.slice(0, 32),
     spendingKey: okm.slice(32, 64),
     solanaSpendingKey: okm.slice(64, 96),
+    dappRoot: okm.slice(96, 128),
   };
 }
 

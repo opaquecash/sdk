@@ -17,18 +17,21 @@ const VECTORS = [
     viewingKey: "dfbc218980ba08986baa5d88aac570f09c48a93a3d96048cfe8f27866feadc7b",
     spendingKey: "51359efa9b99b7e8cb11e9c394b2335ce677a5a498306dc3c223992846669d61",
     solanaSpendingKey: "86d2bbe27490d02efc61cda050ea743fb2a088cbc402f6c5e5d37497bc7be80c",
+    dappRoot: "282c77c42a6f811301455ae09243e8a6a70de39b6085328588d27ee5bfb3bb01",
   },
   {
     signature: ("0x" + "a1b2c3d4e5f60718293a4b5c6d7e8f90".repeat(8) + "1b") as `0x${string}`,
     viewingKey: "f2f616674e7cda7bfd1e7f7d8b87d995df391a2677a0f4df9086f80ee4b2c2aa",
     spendingKey: "3a593405d12854d14d6e8b72725434f96375c1f426686dfa5f7c397d8639de52",
     solanaSpendingKey: "cbfcf744253d4568361ca12ec61dd60873af6111502bf3e7572c80a3233fa050",
+    dappRoot: "a5d03cfb4722fb8a401f612dccd129062718ae80620c16021918fba7f27cc0af",
   },
   {
     signature: ("0x" + "deadbeefcafef00d".repeat(16) + "1c") as `0x${string}`,
     viewingKey: "73958fa3b999caf493885c980284ee7ee756b365a5171e1f21d9904a03101665",
     spendingKey: "4e5c959b395782a47c5c0c6db9a7b62cb883ac062d05ede89958288ede82ab00",
     solanaSpendingKey: "665f78b319742e01560a11747b87d4133b6a5c2250c548f3fe5342d8f5381928",
+    dappRoot: "3bf792f4f6344eb2b149d7d90bcca7a994cec161ca73fef2a2fde24464192305",
   },
 ];
 
@@ -38,5 +41,11 @@ describe("deriveKeysFromSignature golden vectors (pinned from @opaquecash/opaque
     expect(hex(keys.viewingKey)).toBe(v.viewingKey);
     expect(hex(keys.spendingKey)).toBe(v.spendingKey);
     expect(hex(keys.solanaSpendingKey)).toBe(v.solanaSpendingKey);
+  });
+
+  // Pinned at the L=128 rollout (okm[96:128], 2026-07-23): the dApp-identity root must be
+  // as immutable as the stealth keys — a silent change rotates every per-dApp address.
+  it.each(VECTORS)("okm[96:128] dappRoot is stable for $signature", (v) => {
+    expect(hex(deriveKeysFromSignature(v.signature).dappRoot)).toBe(v.dappRoot);
   });
 });
