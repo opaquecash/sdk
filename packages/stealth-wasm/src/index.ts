@@ -45,6 +45,13 @@ export interface InitStealthWasmOptions {
    */
   moduleSpecifier?: string;
   /**
+   * Pre-imported wasm-pack glue module. Takes precedence over `moduleSpecifier`/`moduleUrl`
+   * and skips the dynamic `import()` entirely — required in contexts where dynamic import is
+   * illegal (MV3 service workers): statically import the glue there and pass it here, with
+   * `wasmBinaryUrl` pointing at the `.wasm` asset (e.g. `chrome.runtime.getURL(...)`).
+   */
+  wasmModule?: StealthWasmEntry;
+  /**
    * Optional explicit wasm binary URL if the glue does not embed it.
    */
   wasmBinaryUrl?: string | URL;
@@ -71,14 +78,18 @@ export async function initStealthWasm(
 ): Promise<StealthWasmModule> {
   if (cached && !options?.forceReload) return cached;
 
-  const spec = options?.moduleSpecifier ?? options?.moduleUrl?.toString();
-  if (!spec) {
-    throw new Error(
-      "initStealthWasm: provide `moduleSpecifier` or `moduleUrl` to your cryptography.js entry",
-    );
+  let mod: StealthWasmEntry;
+  if (options?.wasmModule) {
+    mod = options.wasmModule;
+  } else {
+    const spec = options?.moduleSpecifier ?? options?.moduleUrl?.toString();
+    if (!spec) {
+      throw new Error(
+        "initStealthWasm: provide `wasmModule`, `moduleSpecifier`, or `moduleUrl` to your cryptography.js entry",
+      );
+    }
+    mod = (await import(/* webpackIgnore: true */ spec)) as StealthWasmEntry;
   }
-
-  const mod = (await import(/* webpackIgnore: true */ spec)) as StealthWasmEntry;
   const initFn = mod.default ?? mod.init;
   if (typeof initFn === "function") {
     await initFn(

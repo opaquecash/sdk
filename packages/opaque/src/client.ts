@@ -99,6 +99,7 @@ import {
   reconstructSigningKey,
   scanAttestationsJson,
   scanAttestationsV2Json,
+  type StealthWasmEntry,
   type StealthWasmModule,
 } from "@opaquecash/stealth-wasm";
 import {
@@ -294,6 +295,14 @@ export interface OpaqueClientConfig {
    * calling a WASM-backed method throws a clear error.
    */
   wasmModuleSpecifier?: string;
+  /**
+   * Pre-imported wasm-pack glue module; takes precedence over {@link wasmModuleSpecifier}.
+   * Use where dynamic `import()` is illegal (MV3 service workers): statically import the glue
+   * and pass it here, with {@link wasmBinaryUrl} pointing at the `.wasm` asset.
+   */
+  wasmModule?: StealthWasmEntry;
+  /** Explicit `.wasm` binary URL for {@link wasmModule} when the glue does not embed one. */
+  wasmBinaryUrl?: string | URL;
   /**
    * Extra ERC-20s (and native) to aggregate. Merged with chain defaults; native uses
    * {@link NATIVE_TOKEN_ADDRESS}.
@@ -792,8 +801,12 @@ export class OpaqueClient {
    */
   static async create(config: OpaqueClientConfig): Promise<OpaqueClient> {
     const deployment = requireChainDeployment(config.chainId);
-    const wasm = config.wasmModuleSpecifier
-      ? await initStealthWasm({ moduleSpecifier: config.wasmModuleSpecifier })
+    const wasm = config.wasmModule || config.wasmModuleSpecifier
+      ? await initStealthWasm({
+          wasmModule: config.wasmModule,
+          moduleSpecifier: config.wasmModuleSpecifier,
+          wasmBinaryUrl: config.wasmBinaryUrl,
+        })
       : wasmUnavailable();
     const { viewingKey, spendingKey, solanaSpendingKey } =
       deriveKeysFromSignature(config.walletSignature);
@@ -837,8 +850,12 @@ export class OpaqueClient {
     },
   ): Promise<OpaqueClient> {
     const deployment = requireChainDeployment(config.chainId);
-    const wasm = config.wasmModuleSpecifier
-      ? await initStealthWasm({ moduleSpecifier: config.wasmModuleSpecifier })
+    const wasm = config.wasmModule || config.wasmModuleSpecifier
+      ? await initStealthWasm({
+          wasmModule: config.wasmModule,
+          moduleSpecifier: config.wasmModuleSpecifier,
+          wasmBinaryUrl: config.wasmBinaryUrl,
+        })
       : wasmUnavailable();
     const viewingKey =
       typeof keys.viewingKey === "string" ? hexToBytes(keys.viewingKey) : keys.viewingKey;
@@ -3422,16 +3439,17 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Stand-in WASM module for clients created without a `wasmModuleSpecifier`: any property access
- * throws a clear error. The PSR admin API never touches it; scan/sweep/proof/trait methods do.
+ * Stand-in WASM module for clients created without a `wasmModule`/`wasmModuleSpecifier`: any
+ * property access throws a clear error. The PSR admin API never touches it; scan/sweep/proof/trait
+ * methods do.
  */
 function wasmUnavailable(): StealthWasmModule {
   return new Proxy({} as StealthWasmModule, {
     get() {
       throw new Error(
-        "Opaque: this method requires the cryptography WASM module. Pass `wasmModuleSpecifier` to " +
-          "OpaqueClient.create. (Scanning, sweeping, trait discovery, key reconstruction, and proof " +
-          "generation need it; PSR schema/attestation admin does not.)",
+        "Opaque: this method requires the cryptography WASM module. Pass `wasmModule` (or " +
+          "`wasmModuleSpecifier`) to OpaqueClient.create. (Scanning, sweeping, trait discovery, key " +
+          "reconstruction, and proof generation need it; PSR schema/attestation admin does not.)",
       );
     },
   });
