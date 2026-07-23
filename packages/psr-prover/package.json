@@ -1,6 +1,6 @@
 {
   "name": "@opaquecash/psr-prover",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Circom witness helpers and Groth16 proving (snarkjs) for PSR",
   "type": "module",
   "main": "./dist/index.js",
@@ -20,7 +20,7 @@
   },
   "dependencies": {
     "@opaquecash/psr-core": "0.2.2",
-    "@opaquecash/stealth-wasm": "0.2.1",
+    "@opaquecash/stealth-wasm": "0.3.0",
     "buffer": "^6.0.3",
     "circomlibjs": "^0.1.7",
     "snarkjs": "^0.7.5",

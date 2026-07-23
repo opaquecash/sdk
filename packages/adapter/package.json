@@ -1,6 +1,6 @@
 {
   "name": "@opaquecash/adapter",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Chain-agnostic ChainAdapter interface and chain-neutral Announcement type for the Opaque SDK",
   "type": "module",
   "main": "./dist/index.js",

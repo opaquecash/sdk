@@ -1,6 +1,6 @@
 {
   "name": "@opaquecash/stealth-chain",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "Viem helpers for StealthMetaAddressRegistry and StealthAddressAnnouncer",
   "type": "module",
   "main": "./dist/index.js",
@@ -20,7 +20,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@opaquecash/adapter": "0.2.0",
+    "@opaquecash/adapter": "0.2.1",
     "@opaquecash/stealth-core": "0.2.0",
     "viem": "^2.21.0"
   },
