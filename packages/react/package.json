@@ -1,6 +1,6 @@
 {
   "name": "@opaquecash/react",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "React hooks for the Opaque SDK: useOpaqueClient, useScan, useStealthBalance",
   "type": "module",
   "main": "./dist/index.js",
@@ -19,7 +19,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@opaquecash/opaque": "0.5.0"
+    "@opaquecash/opaque": "0.5.1"
   },
   "peerDependencies": {
     "react": ">=18"
