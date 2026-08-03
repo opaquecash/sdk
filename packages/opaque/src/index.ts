@@ -17,6 +17,8 @@ export {
   type RegisterMetaAddressResult,
   type ResolveRecipientMetaResult,
   type OpaqueScanChain,
+  type OpaqueStarknetConfig,
+  type StarknetAccountLike,
   type UnifiedOwnedOutput,
   type OutputBalance,
   type SendStealthPaymentParams,
@@ -59,6 +61,17 @@ export {
   type SolanaCluster,
   type SolanaDeployment,
 } from "@opaquecash/stealth-chain-solana";
+export {
+  StarknetAdapter,
+  type StarknetAdapterOptions,
+  type StarknetCall,
+  type StarknetDeployment,
+  getStarknetDeployment,
+} from "@opaquecash/stealth-chain-starknet";
+// Type-only on purpose: value re-exports from psr-chain-starknet would pull
+// Garaga's WASM bindings into every consumer bundle; the client loads them
+// lazily instead (see buildStarknetReputationVerification).
+export type { StarknetPsrDeployment } from "@opaquecash/psr-chain-starknet";
 
 // PSR on Solana (schema registry, attestation engine, reputation verifier). Namespaced to avoid
 // clashing with the chain-neutral psr-core codecs (e.g. both export `computeSchemaId`).

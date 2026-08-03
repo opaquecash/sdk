@@ -70,9 +70,11 @@ import {
   type StarknetCall,
   STRK_TOKEN_ADDRESS,
   buildAnnounceCall,
+  buildRegisterKeysCall,
   buildStealthTransferCall,
   computeStarknetStealthAccount,
 } from "@opaquecash/stealth-chain-starknet";
+import type { StarknetPsrDeployment } from "@opaquecash/psr-chain-starknet";
 import { getEvmDeployment, getOnsDeployment } from "@opaquecash/deployments";
 
 /** Minimal write/read surface of the canonical OpaqueNameRegistry (spec/ONS.md §2). */
@@ -273,6 +275,40 @@ const ERC5267_ABI = [
 /**
  * Configuration for {@link OpaqueClient.create}.
  */
+/**
+ * Minimal surface of a connected Starknet account. starknet.js `Account` and
+ * `WalletAccount` both satisfy it structurally, so apps pass their wallet
+ * connection straight through — the facade never holds Starknet key material.
+ */
+export interface StarknetAccountLike {
+  /** The account's Starknet address (`0x`-hex felt). */
+  address: string;
+  /** Sign and broadcast an invoke (multicall) from this account. */
+  execute(calls: StarknetCall[]): Promise<{ transaction_hash: string }>;
+}
+
+/**
+ * Starknet configuration: {@link StarknetAdapterOptions} (scan/read access)
+ * plus the optional write-path extras.
+ */
+export interface OpaqueStarknetConfig extends StarknetAdapterOptions {
+  /**
+   * Connected wallet used to SUBMIT Starknet writes ({@link OpaqueClient.registerMetaAddress},
+   * {@link OpaqueClient.submitReputationVerification}). Scanning and the `buildStarknet*`
+   * call builders never need it.
+   */
+  account?: StarknetAccountLike;
+  /**
+   * The V2 Groth16 `verification_key.json` — as a parsed object or a path/URL —
+   * used to Garaga-encode `full_proof_with_hints` for Starknet proof submission.
+   * MUST be the exact key the on-chain verifier class was generated from; any
+   * other key encodes hints the verifier rejects.
+   */
+  psrVerificationKey?: object | string;
+  /** Override the bundled Starknet PSR deployment (defaults to Sepolia). */
+  psrDeployment?: StarknetPsrDeployment;
+}
+
 export interface OpaqueClientConfig {
   /** EVM chain id (must be in {@link getSupportedChainIds} unless you override all contracts). */
   chainId: number;
@@ -326,12 +362,14 @@ export interface OpaqueClientConfig {
    */
   solana?: SolanaAdapterConfig;
   /**
-   * Starknet access for the unified {@link OpaqueClient.scan} inbox. Optional: only needed when
-   * `scan({ chains })` includes `"starknet"`. Scanning and registry reads are wallet-free; the
-   * viewing/spending keys are chain-neutral. Starknet write paths (send, register, PSR issuance)
-   * are not yet wired into the facade — see the P1b roadmap in spec/starknet-integration.md.
+   * Starknet access for the unified {@link OpaqueClient.scan} inbox and Starknet write paths.
+   * Scanning and registry reads are wallet-free (the viewing/spending keys are chain-neutral);
+   * writes ({@link OpaqueClient.registerMetaAddress}, {@link OpaqueClient.submitReputationVerification})
+   * additionally need {@link OpaqueStarknetConfig.account}, and Starknet proof submission needs
+   * {@link OpaqueStarknetConfig.psrVerificationKey}. Sends stay builder-based
+   * ({@link OpaqueClient.buildStarknetStealthSend}) so apps can multicall through their wallet.
    */
-  starknet?: StarknetAdapterOptions;
+  starknet?: OpaqueStarknetConfig;
   /**
    * EIP-1193 provider (e.g. `window.ethereum` or a wallet bridge) used to SIGN Ethereum PSR
    * writes (`createSchema`, `issueAttestation`, …). Reads never need it. Transactions are signed
@@ -1203,9 +1241,11 @@ export class OpaqueClient {
   /**
    * Register THIS wallet's 66-byte meta-address on-chain so others can resolve it, dispatching on
    * `chain`. Submits the transaction with the configured signer (`ethereumWalletClient` /
-   * `ethereumProvider` for Ethereum, `solanaWallet` for Solana) and returns the tx id. For a
-   * calldata-only request you submit yourself, see {@link buildRegisterMetaAddressTransaction}
-   * (Ethereum) or `SolanaAdapter.buildRegisterKeysInstruction`.
+   * `ethereumProvider` for Ethereum, `solanaWallet` for Solana, `starknet.account` for Starknet)
+   * and returns the tx id. For a calldata-only request you submit yourself, see
+   * {@link buildRegisterMetaAddressTransaction} (Ethereum),
+   * `SolanaAdapter.buildRegisterKeysInstruction`, or
+   * {@link buildStarknetRegisterMetaAddress} (Starknet).
    */
   async registerMetaAddress(chain: OpaqueScanChain): Promise<RegisterMetaAddressResult> {
     const schemeId = BigInt(EIP5564_SCHEME_SECP256K1);
@@ -1231,12 +1271,35 @@ export class OpaqueClient {
       const txHash = await this.sendSolanaTx([ix]);
       return { chain, txHash, metaAddressHex: this.metaAddressHex };
     }
+    if (chain === "starknet") {
+      const account = this.requireStarknetAccount();
+      const { call } = this.buildStarknetRegisterMetaAddress();
+      const { transaction_hash } = await account.execute([call]);
+      return { chain, txHash: transaction_hash, metaAddressHex: this.metaAddressHex };
+    }
     throw new Error(`Opaque: unsupported register chain "${chain as string}"`);
   }
 
   /**
+   * Build (but do not broadcast) the Starknet `register_keys` invoke for THIS wallet's
+   * meta-address, for apps that execute through their own wallet connection instead of
+   * configuring `starknet.account` (mirrors {@link buildStarknetStealthSend}). The registry
+   * records the meta-address under the CALLING account, so execute it from the account
+   * that should be resolvable.
+   */
+  buildStarknetRegisterMetaAddress(): { call: StarknetCall; metaAddressHex: Hex } {
+    const call = buildRegisterKeysCall(
+      hexToBytes(this.metaAddressHex),
+      BigInt(EIP5564_SCHEME_SECP256K1),
+      this.getStarknetAdapter().deployment.stealthRegistry,
+    );
+    return { call, metaAddressHex: this.metaAddressHex };
+  }
+
+  /**
    * Whether THIS wallet's meta-address is already registered on `chain` (Ethereum reads its
-   * configured `ethereumAddress`; Solana reads the `solanaWallet` pubkey).
+   * configured `ethereumAddress`; Solana reads the `solanaWallet` pubkey; Starknet reads the
+   * configured `starknet.account` address).
    */
   async isMetaAddressRegistered(chain: OpaqueScanChain): Promise<boolean> {
     if (chain === "ethereum") {
@@ -1246,6 +1309,10 @@ export class OpaqueClient {
     if (chain === "solana") {
       const wallet = this.requireSolanaWallet();
       return this.getSolanaAdapter().isRegistered(wallet.publicKey.toBase58());
+    }
+    if (chain === "starknet") {
+      const account = this.requireStarknetAccount();
+      return this.getStarknetAdapter().isRegistered(account.address);
     }
     throw new Error(`Opaque: unsupported register chain "${chain as string}"`);
   }
@@ -3359,8 +3426,10 @@ export class OpaqueClient {
   /**
    * Broadcast a reputation proof to the verifier, dispatching on `chain` (consumes the nullifier on
    * success). Uses the configured signer for each chain — `ethereumWalletClient` / `ethereumProvider`
-   * for Ethereum, `solanaWallet` for Solana. The same {@link VerifyReputationArgs} feeds both:
-   * `proofData` (from {@link generateReputationProof}), `merkleRoot`, and `externalNullifier`.
+   * for Ethereum, `solanaWallet` for Solana, `starknet.account` for Starknet (which also needs
+   * `starknet.psrVerificationKey` for the Garaga proof encoding). The same
+   * {@link VerifyReputationArgs} feeds all three: `proofData` (from
+   * {@link generateReputationProof}), `merkleRoot`, and `externalNullifier`.
    */
   async submitReputationVerification(
     chain: OpaqueScanChain,
@@ -3398,7 +3467,83 @@ export class OpaqueClient {
       });
       return { txHash };
     }
+    if (chain === "starknet") {
+      const account = this.requireStarknetAccount();
+      const call = await this.buildStarknetReputationVerification(args);
+      const { transaction_hash } = await account.execute([call]);
+      return { txHash: transaction_hash };
+    }
     throw unsupportedPsrChain(chain);
+  }
+
+  /**
+   * Build (but do not broadcast) the Starknet `verify_reputation` invoke for a V2 proof:
+   * Garaga-encodes `full_proof_with_hints` against `starknet.psrVerificationKey` and targets
+   * the deployed verifier (executing it consumes the nullifier). `merkleRoot` and
+   * `externalNullifier` must equal the proof's embedded public signals — a mismatch throws
+   * here instead of reverting on-chain. Execute via `starknet.account`
+   * ({@link submitReputationVerification}) or your own wallet connection.
+   */
+  async buildStarknetReputationVerification(
+    args: VerifyReputationArgs,
+  ): Promise<StarknetCall> {
+    const signals = args.proofData.publicSignals;
+    if (signals.length !== 4) {
+      throw new Error(
+        `Opaque PSR: expected 4 V2 public signals [merkle_root, attestation_id, external_nullifier, nullifier_hash], got ${signals.length}.`,
+      );
+    }
+    if (BigInt(args.merkleRoot) !== BigInt(signals[0])) {
+      throw new Error(
+        "Opaque PSR: merkleRoot does not match the proof's merkle_root public signal.",
+      );
+    }
+    if (BigInt(args.externalNullifier) !== BigInt(signals[2])) {
+      throw new Error(
+        "Opaque PSR: externalNullifier does not match the proof's external_nullifier public signal.",
+      );
+    }
+    const verificationKey = await this.resolveStarknetPsrVerificationKey();
+    // Lazy import: Garaga's WASM bindings load only for apps that actually
+    // encode a Starknet proof, never for EVM/Solana-only consumers.
+    const { encodeFullProofWithHints, buildVerifyReputationCall, STARKNET_SEPOLIA_PSR } =
+      await import("@opaquecash/psr-chain-starknet");
+    const encoded = await encodeFullProofWithHints(args.proofData, verificationKey);
+    const psr = this.config.starknet?.psrDeployment ?? STARKNET_SEPOLIA_PSR;
+    return buildVerifyReputationCall(encoded, psr.reputationVerifier.address);
+  }
+
+  private requireStarknetAccount(): StarknetAccountLike {
+    const account = this.config.starknet?.account;
+    if (!account) {
+      throw new Error(
+        "Opaque: starknet.account ({ address, execute }) is required for Starknet writes. Pass the connected starknet.js Account/WalletAccount to OpaqueClient.create, or use the buildStarknet* builders and execute the calls yourself.",
+      );
+    }
+    return account;
+  }
+
+  /** Resolve `starknet.psrVerificationKey` to the parsed verification-key object. */
+  private async resolveStarknetPsrVerificationKey(): Promise<object> {
+    const source = this.config.starknet?.psrVerificationKey;
+    if (!source) {
+      throw new Error(
+        "Opaque PSR: starknet.psrVerificationKey (verification_key.json object or path/URL) is required to encode Starknet proofs. It must be the exact key the on-chain verifier was generated from.",
+      );
+    }
+    if (typeof source !== "string") return source;
+    const isHttp = /^https?:\/\//i.test(source);
+    if (!isHttp && typeof process !== "undefined" && process.versions?.node) {
+      const { readFile } = await import("node:fs/promises");
+      return JSON.parse(await readFile(source, "utf8")) as object;
+    }
+    const res = await fetch(source);
+    if (!res.ok) {
+      throw new Error(
+        `Opaque PSR: failed to fetch verification key ${source}: HTTP ${res.status} ${res.statusText}`,
+      );
+    }
+    return (await res.json()) as object;
   }
 
   private getReputationVerifierAddress(): Address {
