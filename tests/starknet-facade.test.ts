@@ -186,6 +186,14 @@ describe("OpaqueClient.isMetaAddressRegistered (starknet)", () => {
     });
     expect(await empty.isMetaAddressRegistered("starknet")).toBe(false);
   });
+
+  it("supports a wallet-free read via starknet.accountAddress", async () => {
+    const c = await client({
+      accountAddress: "0x456",
+      fetchFn: registryFetchStub(new Uint8Array(66).fill(2)),
+    });
+    expect(await c.isMetaAddressRegistered("starknet")).toBe(true);
+  });
 });
 
 describe("OpaqueClient.buildStarknetReputationVerification", () => {
@@ -242,6 +250,56 @@ describe("OpaqueClient.buildStarknetReputationVerification", () => {
         externalNullifier: "3",
       }),
     ).rejects.toThrow(/psrVerificationKey/);
+  });
+
+  it("accepts unreduced merkleRoot/externalNullifier (BN254 parity with the EVM arm)", async () => {
+    // The exact OPQ-008 case: the app derives raw keccak-sized values while the
+    // proof commits to value mod r. The guards must reduce before comparing —
+    // passing them means the next failure is the missing vkey, not a mismatch.
+    const FIELD =
+      21888242871839275222246405745257275088548364400416034343698204186575808495617n;
+    const c = await client();
+    await expect(
+      c.buildStarknetReputationVerification({
+        proofData: proofData(["1", "2", "3", "4"]),
+        merkleRoot: (FIELD + 1n).toString(),
+        externalNullifier: (FIELD + 3n).toString(),
+      }),
+    ).rejects.toThrow(/psrVerificationKey/);
+  });
+
+  it("resolves an http(s) psrVerificationKey via fetch, surfacing HTTP failures", async () => {
+    const args = {
+      proofData: proofData(["1", "2", "3", "4"]),
+      merkleRoot: "1",
+      externalNullifier: "3",
+    };
+    const realFetch = globalThis.fetch;
+    const VK_URL = "https://example.invalid/vk.json";
+    // Intercept ONLY the vkey URL: garaga lazily fetches its own WASM through
+    // global fetch, and a blanket stub would poison its module-cached init.
+    const stubVkFetch = (respond: () => Response) => {
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) =>
+        String(input) === VK_URL ? respond() : realFetch(input, init)) as typeof fetch;
+    };
+    try {
+      // Failure path: non-ok response becomes a descriptive error.
+      stubVkFetch(() => new Response("nope", { status: 404, statusText: "Not Found" }));
+      const c = await client({ psrVerificationKey: VK_URL });
+      await expect(c.buildStarknetReputationVerification(args)).rejects.toThrow(
+        /failed to fetch verification key .*404/,
+      );
+
+      // Success path: the stubbed body is consumed (the later garaga failure
+      // proves resolution moved past fetching — it is NOT the fetch error).
+      stubVkFetch(() => new Response(JSON.stringify({ not: "a real vkey" })));
+      const c2 = await client({ psrVerificationKey: VK_URL });
+      await expect(c2.buildStarknetReputationVerification(args)).rejects.not.toThrow(
+        /psrVerificationKey|failed to fetch/,
+      );
+    } finally {
+      globalThis.fetch = realFetch;
+    }
   });
 
   it.skipIf(!fixturesPresent)(

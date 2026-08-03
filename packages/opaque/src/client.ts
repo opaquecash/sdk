@@ -113,6 +113,7 @@ import {
   fieldDefsToString,
   parseFieldDefs,
   randomNonce,
+  toField,
   v2AttestationsToDiscoveredTraits,
   type AttestationV2,
   type FieldDef,
@@ -298,6 +299,13 @@ export interface OpaqueStarknetConfig extends StarknetAdapterOptions {
    * call builders never need it.
    */
   account?: StarknetAccountLike;
+  /**
+   * Starknet address whose registry entry read-only methods
+   * ({@link OpaqueClient.isMetaAddressRegistered}) consult when no `account`
+   * is connected — e.g. a pre-connect "registered" badge. Ignored when
+   * `account` is set (its address wins).
+   */
+  accountAddress?: string;
   /**
    * The V2 Groth16 `verification_key.json` — as a parsed object or a path/URL —
    * used to Garaga-encode `full_proof_with_hints` for Starknet proof submission.
@@ -1299,7 +1307,7 @@ export class OpaqueClient {
   /**
    * Whether THIS wallet's meta-address is already registered on `chain` (Ethereum reads its
    * configured `ethereumAddress`; Solana reads the `solanaWallet` pubkey; Starknet reads the
-   * configured `starknet.account` address).
+   * connected `starknet.account` address, or `starknet.accountAddress` for a wallet-free read).
    */
   async isMetaAddressRegistered(chain: OpaqueScanChain): Promise<boolean> {
     if (chain === "ethereum") {
@@ -1311,8 +1319,15 @@ export class OpaqueClient {
       return this.getSolanaAdapter().isRegistered(wallet.publicKey.toBase58());
     }
     if (chain === "starknet") {
-      const account = this.requireStarknetAccount();
-      return this.getStarknetAdapter().isRegistered(account.address);
+      // A registry read needs an identity, not a signer.
+      const address =
+        this.config.starknet?.account?.address ?? this.config.starknet?.accountAddress;
+      if (!address) {
+        throw new Error(
+          "Opaque: isMetaAddressRegistered(\"starknet\") needs the identity to look up — set starknet.account (connected wallet) or starknet.accountAddress (read-only) in OpaqueClient.create.",
+        );
+      }
+      return this.getStarknetAdapter().isRegistered(address);
     }
     throw new Error(`Opaque: unsupported register chain "${chain as string}"`);
   }
@@ -3493,12 +3508,15 @@ export class OpaqueClient {
         `Opaque PSR: expected 4 V2 public signals [merkle_root, attestation_id, external_nullifier, nullifier_hash], got ${signals.length}.`,
       );
     }
-    if (BigInt(args.merkleRoot) !== BigInt(signals[0])) {
+    // Compare after BN254 reduction, matching the EVM arm's toField handling
+    // (OPQ-008): an app-supplied unreduced value (e.g. raw keccak) must not
+    // fail on Starknet when the identical args succeed on Ethereum.
+    if (toField(BigInt(args.merkleRoot)) !== toField(BigInt(signals[0]))) {
       throw new Error(
         "Opaque PSR: merkleRoot does not match the proof's merkle_root public signal.",
       );
     }
-    if (BigInt(args.externalNullifier) !== BigInt(signals[2])) {
+    if (toField(BigInt(args.externalNullifier)) !== toField(BigInt(signals[2]))) {
       throw new Error(
         "Opaque PSR: externalNullifier does not match the proof's external_nullifier public signal.",
       );
@@ -3523,7 +3541,14 @@ export class OpaqueClient {
     return account;
   }
 
-  /** Resolve `starknet.psrVerificationKey` to the parsed verification-key object. */
+  /**
+   * Resolve `starknet.psrVerificationKey` to the parsed verification-key object.
+   * String semantics: `http(s)://` URLs are fetched everywhere; `file://` URLs
+   * are read from disk (Node); any other string is a filesystem path under
+   * Node and a fetchable (possibly relative) URL in the browser — so a
+   * root-relative asset path like `/circuits/vk.json` only works where the
+   * asset is actually served. Pass the parsed object to avoid the ambiguity.
+   */
   private async resolveStarknetPsrVerificationKey(): Promise<object> {
     const source = this.config.starknet?.psrVerificationKey;
     if (!source) {
@@ -3533,9 +3558,13 @@ export class OpaqueClient {
     }
     if (typeof source !== "string") return source;
     const isHttp = /^https?:\/\//i.test(source);
-    if (!isHttp && typeof process !== "undefined" && process.versions?.node) {
+    const isFileUrl = /^file:\/\//i.test(source);
+    const isNode = typeof process !== "undefined" && process.versions?.node != null;
+    if (!isHttp && isNode) {
       const { readFile } = await import("node:fs/promises");
-      return JSON.parse(await readFile(source, "utf8")) as object;
+      // readFile accepts file: URLs only as URL objects, not strings.
+      const target = isFileUrl ? new URL(source) : source;
+      return JSON.parse(await readFile(target, "utf8")) as object;
     }
     const res = await fetch(source);
     if (!res.ok) {
