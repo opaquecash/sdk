@@ -18,6 +18,7 @@ export {
   UAB_DEPLOYMENTS,
   getUabDeployment,
   requireUabDeployment,
+  toUabDeployment,
 } from "./config.js";
 export type { UabDeployment } from "./config.js";
 

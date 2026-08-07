@@ -1,5 +1,5 @@
 import type { Address } from "viem";
-import { EVM_DEPLOYMENTS } from "@opaquecash/deployments";
+import { EVM_DEPLOYMENTS, type EvmDeployment } from "@opaquecash/deployments";
 
 /** Wormhole chain ids used by Opaque deployments. */
 export const WORMHOLE_CHAIN = { ethereum: 2, solana: 1 } as const;
@@ -26,20 +26,46 @@ export interface UabDeployment {
   fromBlock: bigint;
 }
 
+/**
+ * Zero-address placeholder the deployments generator writes for contract slots a chain
+ * omits. Kept local (rather than imported) so this package compiles against registry
+ * builds of `@opaquecash/deployments` that predate the exported constant.
+ */
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+
+/**
+ * Map one generated EVM deployment record onto a {@link UabDeployment}, or `undefined`
+ * when the chain has no UAB stack. Stealth-only chains (e.g. ones reusing the canonical
+ * ERC-5564/ERC-6538 singletons) carry zero-address placeholders in the generated
+ * registry; treating them as absent keeps cross-chain scans from targeting the zero
+ * address and keeps `scan()`'s cross-chain default off on those chains.
+ */
+export function toUabDeployment(d: EvmDeployment): UabDeployment | undefined {
+  const { uabSender, uabReceiver, wormholeCore } = d.contracts;
+  if (
+    uabSender === ZERO_ADDRESS ||
+    uabReceiver === ZERO_ADDRESS ||
+    wormholeCore === ZERO_ADDRESS
+  ) {
+    return undefined;
+  }
+  return {
+    chainId: d.chainId,
+    whChain: d.wormhole.chainId,
+    wormholeCore: wormholeCore as Address,
+    uabSender: uabSender as Address,
+    uabReceiver: uabReceiver as Address,
+    sourceWhChain: d.wormhole.sourceChainId,
+    fromBlock: d.uabFromBlock,
+  };
+}
+
 /** Known UAB deployments by EVM chain id (from the generated `@opaquecash/deployments`). */
 export const UAB_DEPLOYMENTS: Record<number, UabDeployment> = Object.fromEntries(
-  Object.values(EVM_DEPLOYMENTS).map((d) => [
-    d.chainId,
-    {
-      chainId: d.chainId,
-      whChain: d.wormhole.chainId,
-      wormholeCore: d.contracts.wormholeCore as Address,
-      uabSender: d.contracts.uabSender as Address,
-      uabReceiver: d.contracts.uabReceiver as Address,
-      sourceWhChain: d.wormhole.sourceChainId,
-      fromBlock: d.uabFromBlock,
-    },
-  ]),
+  Object.values(EVM_DEPLOYMENTS).flatMap((d) => {
+    const uab = toUabDeployment(d);
+    return uab ? [[d.chainId, uab]] : [];
+  }),
 );
 
 export function getUabDeployment(chainId: number): UabDeployment | undefined {

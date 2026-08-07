@@ -75,7 +75,11 @@ import {
   computeStarknetStealthAccount,
 } from "@opaquecash/stealth-chain-starknet";
 import type { StarknetPsrDeployment } from "@opaquecash/psr-chain-starknet";
-import { getEvmDeployment, getOnsDeployment } from "@opaquecash/deployments";
+import {
+  getEvmDeployment,
+  getOnsDeployment,
+  isDeployedEvmContract,
+} from "@opaquecash/deployments";
 
 /** Minimal write/read surface of the canonical OpaqueNameRegistry (spec/ONS.md §2). */
 const onsNameRegistryAbi = [
@@ -2109,8 +2113,12 @@ export class OpaqueClient {
       }
     }
 
+    // A bundled entry only counts as configured when its receiver is a real deployment:
+    // stealth-only chains mark absent stacks with the zero address in the generated
+    // registry, and the cross-chain default must stay off there.
+    const bundledUab = getUabDeployment(this.config.chainId);
     const uabConfigured =
-      getUabDeployment(this.config.chainId) != null ||
+      (bundledUab != null && isDeployedEvmContract(bundledUab.uabReceiver)) ||
       this.config.contracts?.uabReceiver != null;
     const includeCrossChain =
       opts.includeCrossChain ?? (opts.chains.includes("ethereum") && uabConfigured);
@@ -2189,10 +2197,14 @@ export class OpaqueClient {
         announcerAddress: this.announcer,
         // announceWithRelay mirrors the Announcement event from UABSender, not the
         // announcer singleton; without this, relay-sent payments are invisible to the
-        // local scan and only discoverable via the destination chain's RPC.
+        // local scan and only discoverable via the destination chain's RPC. On chains
+        // without a UAB stack the bundled slot is the zero-address placeholder, which
+        // must not be merged into the scanned announcer set.
         uabSenderAddress:
           this.config.contracts?.uabSender ??
-          getUabDeployment(this.config.chainId)?.uabSender,
+          (isDeployedEvmContract(getUabDeployment(this.config.chainId)?.uabSender)
+            ? getUabDeployment(this.config.chainId)?.uabSender
+            : undefined),
         registryAddress: this.registry,
         evmChainId: this.config.chainId,
         schemeId: BigInt(EIP5564_SCHEME_SECP256K1),

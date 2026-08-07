@@ -16,17 +16,35 @@ export interface PsrV2Config {
   fromBlock: bigint;
 }
 
+/**
+ * Zero-address placeholder the deployments generator writes for contract slots a chain
+ * omits: stealth-only chains carry it in every PSR slot, and offering it as a real
+ * config would point provers and log scans at the zero address. Kept local (rather than
+ * imported) so this package compiles against registry builds of
+ * `@opaquecash/deployments` that predate the exported constant.
+ */
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+
 const PSR_V2_CONFIGS: Record<number, PsrV2Config> = Object.fromEntries(
-  Object.values(EVM_DEPLOYMENTS).map((d) => [
-    d.chainId,
-    {
-      schemaRegistry: d.contracts.opaqueSchemaRegistry as Address,
-      attestationRegistry: d.contracts.opaqueAttestationRegistry as Address,
-      groth16VerifierV2: d.contracts.groth16VerifierV2 as Address,
-      reputationVerifierV2: d.contracts.opaqueReputationVerifierV2 as Address,
-      fromBlock: d.psrFromBlock,
-    },
-  ]),
+  Object.values(EVM_DEPLOYMENTS)
+    .filter((d) =>
+      [
+        d.contracts.opaqueSchemaRegistry,
+        d.contracts.opaqueAttestationRegistry,
+        d.contracts.groth16VerifierV2,
+        d.contracts.opaqueReputationVerifierV2,
+      ].every((address) => address !== ZERO_ADDRESS),
+    )
+    .map((d) => [
+      d.chainId,
+      {
+        schemaRegistry: d.contracts.opaqueSchemaRegistry as Address,
+        attestationRegistry: d.contracts.opaqueAttestationRegistry as Address,
+        groth16VerifierV2: d.contracts.groth16VerifierV2 as Address,
+        reputationVerifierV2: d.contracts.opaqueReputationVerifierV2 as Address,
+        fromBlock: d.psrFromBlock,
+      },
+    ]),
 );
 
 /** Chain ids with a bundled V2 PSR deployment. */

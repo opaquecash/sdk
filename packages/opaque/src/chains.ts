@@ -3,6 +3,7 @@ import type { TrackedToken } from "@opaquecash/stealth-balance";
 import {
   EVM_DEPLOYMENTS,
   getEvmChainIds,
+  isDeployedEvmContract,
   type EvmDeployment,
 } from "@opaquecash/deployments";
 
@@ -26,7 +27,12 @@ export interface OpaqueChainDeployment {
   defaultTrackedTokens: TrackedToken[];
 }
 
-/** Map a generated {@link EvmDeployment} record onto the client-facing bundle. */
+/**
+ * Map a generated {@link EvmDeployment} record onto the client-facing bundle. Generated
+ * records mark stacks that are not deployed on a chain with the zero address; those
+ * collapse to `undefined` here so the optional fields stay genuinely absent on
+ * stealth-only chains.
+ */
 function fromGenerated(d: EvmDeployment): OpaqueChainDeployment {
   return {
     chainId: d.chainId,
@@ -34,8 +40,12 @@ function fromGenerated(d: EvmDeployment): OpaqueChainDeployment {
     stealthMetaAddressRegistry: d.contracts.stealthMetaAddressRegistry,
     stealthAddressAnnouncer: d.contracts.stealthAddressAnnouncer,
     // V2 verifier is canonical (D3); the V1 verifier used an incompatible signal layout.
-    opaqueReputationVerifier: d.contracts.opaqueReputationVerifierV2,
-    stealthTokenSweep: d.contracts.stealthTokenSweep,
+    opaqueReputationVerifier: isDeployedEvmContract(d.contracts.opaqueReputationVerifierV2)
+      ? d.contracts.opaqueReputationVerifierV2
+      : undefined,
+    stealthTokenSweep: isDeployedEvmContract(d.contracts.stealthTokenSweep)
+      ? d.contracts.stealthTokenSweep
+      : undefined,
     defaultTrackedTokens: d.tokens.map((t) => ({
       address: t.address,
       symbol: t.symbol,
