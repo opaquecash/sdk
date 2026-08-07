@@ -4,6 +4,34 @@ import type { EvmDeployment } from "../types.js";
 
 /** Opaque EVM deployments keyed by chain id. */
 export const EVM_DEPLOYMENTS: Record<number, EvmDeployment> = {
+  8453: {
+    chainId: 8453,
+    name: "Base",
+    contracts: {
+      stealthMetaAddressRegistry: "0x6538E6bf4B0eBd30A8Ea093027Ac2422ce5d6538",
+      stealthAddressAnnouncer: "0x55649E01B5Df198D18D95b5cc5051630cfD45564",
+      opaqueSchemaRegistry: "0x0000000000000000000000000000000000000000",
+      opaqueAttestationRegistry: "0x0000000000000000000000000000000000000000",
+      opaqueReputationVerifierV2: "0x0000000000000000000000000000000000000000",
+      groth16VerifierV2: "0x0000000000000000000000000000000000000000",
+      uabSender: "0x0000000000000000000000000000000000000000",
+      uabReceiver: "0x0000000000000000000000000000000000000000",
+      relayerRegistry: "0x0000000000000000000000000000000000000000",
+      opaquePrivacyPool: "0x0000000000000000000000000000000000000000",
+      withdrawalVerifier: "0x0000000000000000000000000000000000000000",
+      opaqueDisclosureRegistry: "0x0000000000000000000000000000000000000000",
+      disclosureVerifier: "0x0000000000000000000000000000000000000000",
+      wormholeCore: "0xbebdb6C8ddC678FfA9f8748f85C815C556Dd8ac6",
+    },
+    wormhole: { chainId: 30, sourceChainId: 1 },
+    stealthFromBlock: 15502414n,
+    psrFromBlock: 0n,
+    uabFromBlock: 0n,
+    tokens: [
+      { address: "0x0000000000000000000000000000000000000000", symbol: "ETH", decimals: 18, native: true },
+      { address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", symbol: "USDC", decimals: 6 },
+    ],
+  },
   11155111: {
     chainId: 11155111,
     name: "Sepolia",

@@ -16,7 +16,16 @@ export interface DeployedToken {
   native?: boolean;
 }
 
-/** All Opaque contract addresses on one EVM chain. */
+/**
+ * All Opaque contract addresses on one EVM chain.
+ *
+ * Only the stealth pair (registry + announcer) is guaranteed to be a real deployment on
+ * every chain — on chains that host the canonical ERC-5564/ERC-6538 singletons (e.g. Base
+ * mainnet) it points at those external well-known contracts. Every other stack (PSR, UAB,
+ * relayer market, privacy pool, disclosure) is optional per chain: slots the chain record
+ * omits are generated as the zero address, which consumers must treat as "not deployed
+ * here" (see `isDeployedEvmContract`).
+ */
 export interface EvmContracts {
   stealthMetaAddressRegistry: EvmAddress;
   stealthAddressAnnouncer: EvmAddress;
@@ -54,9 +63,9 @@ export interface EvmDeployment {
   wormhole: { chainId: number; sourceChainId: number };
   /** Block the stealth stack (announcer + registry) was deployed at; never scan announcements before it. */
   stealthFromBlock: bigint;
-  /** Block the V2 PSR stack was deployed at; never scan PSR logs before it. */
+  /** Block the V2 PSR stack was deployed at; never scan PSR logs before it. 0 when the stack is absent. */
   psrFromBlock: bigint;
-  /** Block the UAB contracts were deployed at; never scan UAB logs before it. */
+  /** Block the UAB contracts were deployed at; never scan UAB logs before it. 0 when the stack is absent. */
   uabFromBlock: bigint;
   /** Default tracked tokens for balance aggregation. */
   tokens: DeployedToken[];

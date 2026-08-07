@@ -35,6 +35,22 @@ import type {
 export { EVM_DEPLOYMENTS, ONS_DEPLOYMENTS, SOLANA_PROGRAM_IDS, STARKNET_DEPLOYMENTS };
 export * from "./generated/abis.js";
 
+/**
+ * Zero-address placeholder written into generated {@link EvmContracts} slots for stacks
+ * that are not deployed on a chain (see the `EvmContracts` docs).
+ */
+export const EVM_ZERO_ADDRESS = "0x0000000000000000000000000000000000000000" as const;
+
+/**
+ * True when a generated contract slot holds a real deployment rather than the
+ * zero-address "not deployed on this chain" placeholder (or is absent entirely).
+ */
+export function isDeployedEvmContract(
+  address: string | undefined,
+): address is `0x${string}` {
+  return address !== undefined && address !== EVM_ZERO_ADDRESS;
+}
+
 /** Chain ids with a bundled EVM deployment. */
 export function getEvmChainIds(): number[] {
   return Object.keys(EVM_DEPLOYMENTS).map(Number);
