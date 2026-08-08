@@ -27,6 +27,8 @@ const CANONICAL_ANNOUNCER = "0x55649E01B5Df198D18D95b5cc5051630cfD45564";
 const CANONICAL_REGISTRY = "0x6538E6bf4B0eBd30A8Ea093027Ac2422ce5d6538";
 /** Base block the canonical singletons were deployed at (both in the same block). */
 const BASE_STEALTH_FROM_BLOCK = 15_502_414n;
+/** Base Sepolia block the canonical announcer was deployed at (registry followed at 7675097). */
+const BASE_SEPOLIA_STEALTH_FROM_BLOCK = 7_552_655n;
 
 const baseClientConfig = {
   chainId: 8453,
@@ -89,6 +91,71 @@ describe("Base deployment record", () => {
     expect(isDeployedEvmContract(EVM_ZERO_ADDRESS)).toBe(false);
     expect(isDeployedEvmContract(undefined)).toBe(false);
     expect(isDeployedEvmContract(CANONICAL_ANNOUNCER)).toBe(true);
+  });
+});
+
+describe("Base Sepolia deployment record", () => {
+  const baseSepolia = EVM_DEPLOYMENTS[84532];
+
+  it("targets the canonical ERC-5564/ERC-6538 singletons", () => {
+    expect(getEvmChainIds()).toContain(84532);
+    expect(baseSepolia.name).toBe("Base Sepolia");
+    expect(baseSepolia.contracts.stealthAddressAnnouncer).toBe(CANONICAL_ANNOUNCER);
+    expect(baseSepolia.contracts.stealthMetaAddressRegistry).toBe(CANONICAL_REGISTRY);
+    expect(baseSepolia.stealthFromBlock).toBe(BASE_SEPOLIA_STEALTH_FROM_BLOCK);
+    expect(baseSepolia.wormhole).toEqual({ chainId: 10004, sourceChainId: 1 });
+  });
+
+  it("marks every non-stealth stack with the zero-address placeholder", () => {
+    for (const slot of [
+      baseSepolia.contracts.opaqueSchemaRegistry,
+      baseSepolia.contracts.opaqueAttestationRegistry,
+      baseSepolia.contracts.opaqueReputationVerifierV2,
+      baseSepolia.contracts.groth16VerifierV2,
+      baseSepolia.contracts.uabSender,
+      baseSepolia.contracts.uabReceiver,
+      baseSepolia.contracts.relayerRegistry,
+      baseSepolia.contracts.opaquePrivacyPool,
+      baseSepolia.contracts.withdrawalVerifier,
+      baseSepolia.contracts.opaqueDisclosureRegistry,
+      baseSepolia.contracts.disclosureVerifier,
+      baseSepolia.contracts.wormholeCore,
+    ]) {
+      expect(slot).toBe(EVM_ZERO_ADDRESS);
+    }
+    expect(baseSepolia.contracts.stealthTokenSweep).toBeUndefined();
+    expect(baseSepolia.psrFromBlock).toBe(0n);
+    expect(baseSepolia.uabFromBlock).toBe(0n);
+  });
+
+  it("tracks native ETH and USDC", () => {
+    expect(baseSepolia.tokens).toEqual([
+      {
+        address: "0x0000000000000000000000000000000000000000",
+        symbol: "ETH",
+        decimals: 18,
+        native: true,
+      },
+      {
+        address: "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+        symbol: "USDC",
+        decimals: 6,
+      },
+    ]);
+  });
+
+  it("derives no UAB deployment and reports PSR as unsupported", () => {
+    expect(UAB_DEPLOYMENTS[84532]).toBeUndefined();
+    expect(getPsrV2Config(84532)).toBeNull();
+  });
+
+  it("resolves the client-facing bundle with placeholder optionals collapsed", () => {
+    const d = requireChainDeployment(84532);
+    expect(d.stealthAddressAnnouncer).toBe(CANONICAL_ANNOUNCER);
+    expect(d.stealthMetaAddressRegistry).toBe(CANONICAL_REGISTRY);
+    expect(d.opaqueReputationVerifier).toBeUndefined();
+    expect(d.stealthTokenSweep).toBeUndefined();
+    expect(d.defaultTrackedTokens.map((t) => t.symbol)).toEqual(["ETH", "USDC"]);
   });
 });
 
